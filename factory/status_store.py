@@ -49,7 +49,23 @@ def start_status(task, job_id=None):
 
 def complete_status(job_id, payload):
     current = read_status()
-    if current.get("job_id") != job_id:
+    current_job_id = current.get("job_id")
+    current_state = current.get("state")
+
+    if current_job_id not in (job_id, None):
+        print(
+            f"[factory] ignored stale status update for job_id={job_id}; "
+            f"current job_id={current_job_id}",
+            flush=True,
+        )
+        return False
+
+    if current_job_id is None and current_state not in (None, "idle"):
+        print(
+            f"[factory] ignored status update for job_id={job_id}; "
+            f"current state={current_state}",
+            flush=True,
+        )
         return False
 
     next_status = {**payload, "job_id": job_id, "updated_at": now_iso()}

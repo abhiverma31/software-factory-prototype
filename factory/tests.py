@@ -76,6 +76,15 @@ class FactoryStatusStoreTests(TestCase):
         self.assertEqual(read_status()["job_id"], "new-job")
         self.assertEqual(read_status()["state"], "running")
 
+    def test_complete_status_recovers_when_status_was_reset_to_idle(self):
+        clear_status()
+
+        updated = complete_status("job-1", {"state": "completed", "task": "fix this error"})
+
+        self.assertTrue(updated)
+        self.assertEqual(read_status()["job_id"], "job-1")
+        self.assertEqual(read_status()["state"], "completed")
+
     def test_complete_status_updates_matching_job(self):
         start_status("fix this error", job_id="job-1")
 
