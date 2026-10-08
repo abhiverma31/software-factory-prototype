@@ -31,6 +31,7 @@ class FactoryViewTests(TestCase):
     @patch("factory.views.start_factory")
     def test_factory_accepts_arbitrary_task_text(self, start_factory):
         start_factory.return_value = {
+            "job_id": "job-1",
             "state": "running",
             "task": "fix whatever caused the calculator failure",
             "detail": "Local factory process started.",
@@ -44,6 +45,15 @@ class FactoryViewTests(TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["state"], "running")
         self.assertIn("calculator failure", response.json()["task"])
+
+    def test_status_can_be_read_for_current_job(self):
+        start_status("fix this error", job_id="job-1")
+
+        response = self.client.get(reverse("factory-status"), {"job_id": "job-1"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["job_id"], "job-1")
+        self.assertEqual(response.json()["state"], "running")
 
 
 class FactoryStatusCopyTests(TestCase):

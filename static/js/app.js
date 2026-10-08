@@ -9,6 +9,7 @@ const statusBox = document.querySelector("#factory-status");
 const resetButton = document.querySelector("#reset-demo-button");
 let pollTimer = null;
 let shouldPollStatus = false;
+let activeJobId = null;
 
 async function ensureFreshDemoEpoch() {
   const renderedEpoch = document.body.dataset.demoEpoch || "";
@@ -54,12 +55,31 @@ function scheduleStatusPoll() {
   pollTimer = window.setTimeout(fetchStatus, 1000);
 }
 
+function isStaleStatus(payload) {
+  return activeJobId && payload.job_id !== activeJobId;
+}
+
 async function fetchStatus() {
   try {
-    const response = await fetch(`/factory/status/?t=${Date.now()}`, { cache: "no-store" });
+    const params = new URLSearchParams({ t: Date.now().toString() });
+    if (activeJobId) {
+      params.set("job_id", activeJobId);
+    }
+
+    const response = await fetch(`/factory/status/?${params.toString()}`, { cache: "no-store" });
     const payload = await response.json();
-    renderStatus(payload);
-    shouldPollStatus = payload.state === "running";
+
+    if (isStaleStatus(payload)) {
+      statusBox.querySelector("strong").textContent = "Running";
+      statusBox.querySelector("p").textContent = "Factory is still running.";
+      shouldPollStatus = true;
+    } else {
+      renderStatus(payload);
+      shouldPollStatus = payload.state === "running";
+      if (payload.state === "completed" || payload.state === "failed") {
+        activeJobId = null;
+      }
+    }
   } catch (error) {
     if (shouldPollStatus) {
       statusBox.querySelector("p").textContent = "Factory is still running. Waiting for server reload...";
@@ -84,6 +104,7 @@ if (resetButton) {
       cache: "no-store",
     });
 
+    activeJobId = null;
     window.location.replace("/");
   });
 }
@@ -105,7 +126,9 @@ if (form) {
       cache: "no-store",
     });
 
-    renderStatus(await response.json());
+    const payload = await response.json();
+    activeJobId = payload.job_id || null;
+    renderStatus(payload);
     scheduleStatusPoll();
   });
 

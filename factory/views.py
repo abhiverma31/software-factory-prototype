@@ -31,7 +31,11 @@ def fix(request):
 
 @require_GET
 def status(request):
-    return JsonResponse(read_status())
+    job_id = request.GET.get("job_id")
+    status_payload = read_status(job_id=job_id)
+    if status_payload is None:
+        status_payload = read_status()
+    return JsonResponse(status_payload)
 
 
 @require_GET
