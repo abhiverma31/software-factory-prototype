@@ -6,16 +6,9 @@ import sys
 def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "software_factory.settings")
 
-    should_reset_demo = (
-        len(sys.argv) > 1
-        and sys.argv[1] == "runserver"
-        and os.environ.get("RUN_MAIN") != "true"
-        and os.environ.get("SOFTWARE_FACTORY_SKIP_RESET") != "1"
-    )
-    if should_reset_demo:
-        from software_factory.demo_reset import reset_demo_state
+    from software_factory.startup import maybe_reset_demo_on_runserver_start
 
-        reset_demo_state()
+    maybe_reset_demo_on_runserver_start()
 
     from django.core.management import execute_from_command_line
 

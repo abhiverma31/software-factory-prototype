@@ -10,7 +10,7 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "calculator",
-    "factory",
+    "factory.apps.FactoryConfig",
 ]
 
 MIDDLEWARE = [
