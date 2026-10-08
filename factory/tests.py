@@ -84,9 +84,10 @@ class FactoryStatusStoreTests(TestCase):
         self.assertTrue(updated)
         self.assertEqual(read_status()["state"], "completed")
 
-    def test_clear_status_removes_file(self):
+    def test_clear_status_writes_idle_state(self):
         start_status("fix this error", job_id="job-1")
         clear_status()
 
-        self.assertFalse(settings.FACTORY_STATUS_FILE.exists())
+        self.assertTrue(settings.FACTORY_STATUS_FILE.exists())
         self.assertEqual(read_status()["state"], "idle")
+        self.assertIsNone(read_status()["job_id"])

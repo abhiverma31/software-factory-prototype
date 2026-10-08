@@ -58,5 +58,10 @@ def complete_status(job_id, payload):
 
 
 def clear_status():
-    if settings.FACTORY_STATUS_FILE.exists():
-        settings.FACTORY_STATUS_FILE.unlink()
+    return write_status(
+        {
+            **IDLE_STATUS,
+            "job_id": None,
+            "updated_at": now_iso(),
+        }
+    )
