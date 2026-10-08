@@ -6,6 +6,7 @@ window.addEventListener("pageshow", (event) => {
 
 const form = document.querySelector("#factory-form");
 const calculatorForm = document.querySelector(".calculator-form");
+const calculatorOutput = document.querySelector("#calculator-output");
 const statusBox = document.querySelector("#factory-status");
 const resetButton = document.querySelector("#reset-demo-button");
 let pollTimer = null;
@@ -35,6 +36,30 @@ function clearBrowserRestoredCalculatorState() {
   if (operationInput) {
     operationInput.value = "divide";
   }
+}
+
+function renderCalculatorOutput(payload) {
+  if (!calculatorOutput) {
+    return;
+  }
+
+  calculatorOutput.replaceChildren();
+
+  if (payload.result === undefined && !payload.error) {
+    return;
+  }
+
+  const result = document.createElement("div");
+  result.className = payload.error ? "result failure" : "result success";
+
+  const label = document.createElement("span");
+  label.textContent = payload.error ? "Calculator blew up" : "Result";
+
+  const value = document.createElement("strong");
+  value.textContent = payload.error || payload.result;
+
+  result.append(label, value);
+  calculatorOutput.append(result);
 }
 
 async function ensureFreshDemoEpoch() {
@@ -146,6 +171,30 @@ if (resetButton) {
 
 if (form) {
   clearBrowserRestoredCalculatorState();
+
+  if (calculatorForm) {
+    calculatorForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(calculatorForm);
+      const token = data.get("csrfmiddlewaretoken");
+
+      const response = await fetch("/calculate/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": token,
+        },
+        body: JSON.stringify({
+          left: data.get("left"),
+          right: data.get("right"),
+          operation: data.get("operation"),
+        }),
+        cache: "no-store",
+      });
+
+      renderCalculatorOutput(await response.json());
+    });
+  }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

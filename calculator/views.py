@@ -1,5 +1,10 @@
+import json
+from json import JSONDecodeError
+
 from django.conf import settings
+from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.http import require_POST
 
 from . import services
 
@@ -38,3 +43,25 @@ def index(request):
 
     return render(request, "calculator/index.html", context)
 
+
+@require_POST
+def calculate(request):
+    if request.content_type == "application/json":
+        try:
+            payload = json.loads(request.body or "{}")
+        except JSONDecodeError:
+            return JsonResponse({"error": "Request body must be valid JSON."}, status=400)
+    else:
+        payload = request.POST
+
+    left_value = payload.get("left", "0")
+    right_value = payload.get("right", "0")
+    operation_key = payload.get("operation", "divide")
+
+    try:
+        left = float(left_value)
+        right = float(right_value)
+        _, operation = OPERATIONS[operation_key]
+        return JsonResponse({"result": operation(left, right)})
+    except Exception as exc:
+        return JsonResponse({"error": f"{type(exc).__name__}: {exc}"})

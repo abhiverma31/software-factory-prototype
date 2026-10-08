@@ -72,19 +72,21 @@ TEMPLATE_BASELINE = """{% load static %}
               <button type="submit">Calculate</button>
             </form>
 
-            {% if result is not None %}
-              <div class="result success">
-                <span>Result</span>
-                <strong>{{ result }}</strong>
-              </div>
-            {% endif %}
+            <div id="calculator-output">
+              {% if result is not None %}
+                <div class="result success">
+                  <span>Result</span>
+                  <strong>{{ result }}</strong>
+                </div>
+              {% endif %}
 
-            {% if error %}
-              <div class="result failure">
-                <span>Calculator blew up</span>
-                <strong>{{ error }}</strong>
-              </div>
-            {% endif %}
+              {% if error %}
+                <div class="result failure">
+                  <span>Calculator blew up</span>
+                  <strong>{{ error }}</strong>
+                </div>
+              {% endif %}
+            </div>
 
           </section>
 
@@ -120,7 +122,7 @@ TEMPLATE_BASELINE = """{% load static %}
 
       </section>
     </main>
-    <script src="{% static 'js/app.js' %}?v=12"></script>
+    <script src="{% static 'js/app.js' %}?v=13"></script>
   </body>
 </html>
 """
