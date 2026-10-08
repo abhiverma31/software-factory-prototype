@@ -120,7 +120,7 @@ TEMPLATE_BASELINE = """{% load static %}
 
       </section>
     </main>
-    <script src="{% static 'js/app.js' %}?v=11"></script>
+    <script src="{% static 'js/app.js' %}?v=12"></script>
   </body>
 </html>
 """

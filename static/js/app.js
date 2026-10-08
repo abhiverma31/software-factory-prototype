@@ -5,11 +5,37 @@ window.addEventListener("pageshow", (event) => {
 });
 
 const form = document.querySelector("#factory-form");
+const calculatorForm = document.querySelector(".calculator-form");
 const statusBox = document.querySelector("#factory-status");
 const resetButton = document.querySelector("#reset-demo-button");
 let pollTimer = null;
+let epochTimer = null;
 let shouldPollStatus = false;
 let activeJobId = null;
+
+function hasCalculatorOutput() {
+  return document.querySelector(".result") !== null;
+}
+
+function clearBrowserRestoredCalculatorState() {
+  if (!calculatorForm || hasCalculatorOutput()) {
+    return;
+  }
+
+  const leftInput = calculatorForm.querySelector('[name="left"]');
+  const rightInput = calculatorForm.querySelector('[name="right"]');
+  const operationInput = calculatorForm.querySelector('[name="operation"]');
+
+  if (leftInput) {
+    leftInput.value = "";
+  }
+  if (rightInput) {
+    rightInput.value = "";
+  }
+  if (operationInput) {
+    operationInput.value = "divide";
+  }
+}
 
 async function ensureFreshDemoEpoch() {
   const renderedEpoch = document.body.dataset.demoEpoch || "";
@@ -20,8 +46,17 @@ async function ensureFreshDemoEpoch() {
   const response = await fetch(`/factory/demo-epoch/?t=${Date.now()}`, { cache: "no-store" });
   const payload = await response.json();
   if (payload.epoch && payload.epoch !== renderedEpoch) {
-    window.location.replace("/");
+    window.location.replace(`/?t=${Date.now()}`);
   }
+}
+
+function scheduleEpochPoll() {
+  if (epochTimer) {
+    window.clearTimeout(epochTimer);
+  }
+  epochTimer = window.setTimeout(() => {
+    ensureFreshDemoEpoch().finally(scheduleEpochPoll);
+  }, 1000);
 }
 
 function displayState(state) {
@@ -110,6 +145,8 @@ if (resetButton) {
 }
 
 if (form) {
+  clearBrowserRestoredCalculatorState();
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -132,5 +169,8 @@ if (form) {
     scheduleStatusPoll();
   });
 
-  ensureFreshDemoEpoch().finally(fetchStatus);
+  ensureFreshDemoEpoch().finally(() => {
+    fetchStatus();
+    scheduleEpochPoll();
+  });
 }
