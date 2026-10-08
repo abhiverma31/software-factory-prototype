@@ -1,40 +1,42 @@
 import argparse
-import json
 import shutil
 import subprocess
+import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "software_factory.settings")
+
+import django
+
+django.setup()
+
+from .status_store import complete_status, now_iso
 
 
 def log(message):
     print(f"[factory] {message}", flush=True)
 
 
-def write_status(path, payload):
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", required=True)
-    parser.add_argument("--status-file", required=True)
+    parser.add_argument("--job-id", required=True)
     parser.add_argument("--repo", required=True)
     args = parser.parse_args()
 
-    status_file = Path(args.status_file)
     repo = Path(args.repo)
     local_codex = repo / "node_modules" / ".bin" / "codex"
     codex = str(local_codex) if local_codex.exists() else shutil.which("codex")
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     log(f"received task: {args.task}")
     log(f"working directory: {repo}")
 
     if not codex:
         log("Codex CLI not found")
-        write_status(
-            status_file,
+        complete_status(
+            args.job_id,
             {
                 "state": "waiting_for_codex",
                 "task": args.task,
@@ -82,12 +84,11 @@ def main():
             process.kill()
             process.wait()
             log("Codex timed out after 180 seconds")
-            write_status(
-                status_file,
+            complete_status(
+                args.job_id,
                 {
                     "state": "failed",
                     "task": args.task,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
                     "detail": "Codex timed out after 180 seconds.",
                     "stdout": "".join(output)[-4000:],
                     "stderr": "",
@@ -96,12 +97,11 @@ def main():
             return 124
     except OSError as exc:
         log(f"failed to start Codex: {exc}")
-        write_status(
-            status_file,
+        complete_status(
+            args.job_id,
             {
                 "state": "failed",
                 "task": args.task,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "detail": f"Failed to start Codex: {exc}",
                 "stdout": "",
                 "stderr": str(exc),
@@ -114,12 +114,11 @@ def main():
     detail = "Codex run completed." if return_code == 0 else "Codex run failed. Check terminal output."
     log(f"Codex finished with state={state}, return_code={return_code}")
 
-    write_status(
-        status_file,
+    complete_status(
+        args.job_id,
         {
             "state": state,
             "task": args.task,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
             "return_code": return_code,
             "detail": detail,
             "stdout": combined_output[-4000:],

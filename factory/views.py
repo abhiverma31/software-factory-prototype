@@ -7,7 +7,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from software_factory.demo_reset import reset_demo_state
 
-from .runner import read_status, start_factory
+from .runner import start_factory
+from .status_store import read_status
 
 
 @require_POST

@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from factory.status_store import clear_status
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -129,8 +131,6 @@ def reset_demo_state():
     (BASE_DIR / "templates/calculator/index.html").write_text(TEMPLATE_BASELINE, encoding="utf-8")
     (BASE_DIR / "demo_epoch.txt").write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
 
-    status_file = BASE_DIR / "factory_status.json"
-    if status_file.exists():
-        status_file.unlink()
+    clear_status()
 
     print("[factory] demo reset: baseline UI restored, division re-broken, status cleared", flush=True)

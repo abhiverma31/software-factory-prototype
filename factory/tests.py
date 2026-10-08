@@ -1,8 +1,12 @@
 import json
+
+from django.conf import settings
 from unittest.mock import patch
 
 from django.test import TestCase
 from django.urls import reverse
+
+from .status_store import clear_status, complete_status, read_status, start_status
 
 
 class FactoryViewTests(TestCase):
@@ -46,3 +50,43 @@ class FactoryStatusCopyTests(TestCase):
     def test_status_is_clear_when_codex_is_missing(self):
         # The local worker writes this state when Codex CLI is unavailable.
         self.assertIn("Codex CLI", "Codex CLI was not found on PATH.")
+
+
+class FactoryStatusStoreTests(TestCase):
+    def tearDown(self):
+        clear_status()
+
+    def test_read_status_defaults_to_idle_when_missing(self):
+        clear_status()
+
+        self.assertEqual(read_status()["state"], "idle")
+
+    def test_start_status_writes_job_id_and_running_state(self):
+        status = start_status("fix this error", job_id="job-1")
+
+        self.assertEqual(status["job_id"], "job-1")
+        self.assertEqual(read_status("job-1")["state"], "running")
+
+    def test_complete_status_ignores_stale_job(self):
+        start_status("newer job", job_id="new-job")
+
+        updated = complete_status("old-job", {"state": "completed", "task": "old"})
+
+        self.assertFalse(updated)
+        self.assertEqual(read_status()["job_id"], "new-job")
+        self.assertEqual(read_status()["state"], "running")
+
+    def test_complete_status_updates_matching_job(self):
+        start_status("fix this error", job_id="job-1")
+
+        updated = complete_status("job-1", {"state": "completed", "task": "fix this error"})
+
+        self.assertTrue(updated)
+        self.assertEqual(read_status()["state"], "completed")
+
+    def test_clear_status_removes_file(self):
+        start_status("fix this error", job_id="job-1")
+        clear_status()
+
+        self.assertFalse(settings.FACTORY_STATUS_FILE.exists())
+        self.assertEqual(read_status()["state"], "idle")
