@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and customize.
+aws_region  = "us-east-1"
+aws_profile = ""
+
+project_name = "software-factory"
+environment  = "dev"
+
+# Keep this low for the cost-minimal prototype.
+log_retention_days = 1

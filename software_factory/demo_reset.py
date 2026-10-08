@@ -1,0 +1,136 @@
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SERVICES_BASELINE = """def add(left, right):
+    return left + right
+
+
+def subtract(left, right):
+    return left - right
+
+
+def multiply(left, right):
+    return left * right
+
+
+def divide(left, right):
+    return left / 0
+"""
+
+TEMPLATE_BASELINE = """{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Software Factory Calculator</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}?v=2">
+  </head>
+  <body data-demo-epoch="{{ demo_epoch }}">
+    <main class="shell">
+      <section class="workspace">
+        <div class="intro">
+          <p class="eyebrow">Local prototype</p>
+          <h1>Software Factory</h1>
+          <p class="lede">A tiny Django calculator that can fail in public, then hand a natural-language repair task to a local agent harness.</p>
+        </div>
+
+        <div class="grid">
+          <div class="left-column">
+          <section class="panel calculator-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Calculator service</p>
+                <h2>Run operation</h2>
+              </div>
+              <span class="status-pill">Clean slate</span>
+            </div>
+
+            <form method="post" class="calculator-form" autocomplete="off">
+              {% csrf_token %}
+              <label>
+                <span>Left value</span>
+                <input name="left" value="{{ left }}" inputmode="decimal" autocomplete="off">
+              </label>
+              <label>
+                <span>Operation</span>
+                <select name="operation">
+                  {% for key, item in operations.items %}
+                    <option value="{{ key }}" {% if operation == key %}selected{% endif %}>{{ item.0 }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                <span>Right value</span>
+                <input name="right" value="{{ right }}" inputmode="decimal" autocomplete="off">
+              </label>
+              <button type="submit">Calculate</button>
+            </form>
+
+            {% if result is not None %}
+              <div class="result success">
+                <span>Result</span>
+                <strong>{{ result }}</strong>
+              </div>
+            {% endif %}
+
+            {% if error %}
+              <div class="result failure">
+                <span>Calculator blew up</span>
+                <strong>{{ error }}</strong>
+              </div>
+            {% endif %}
+
+          </section>
+
+          <div class="demo-actions">
+            <button type="button" id="reset-demo-button" class="secondary-button">Reset demo</button>
+          </div>
+          </div>
+
+          <section class="panel factory-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Agent handoff</p>
+                <h2>Ask factory</h2>
+              </div>
+            </div>
+
+            <form id="factory-form" class="factory-form" autocomplete="off">
+              {% csrf_token %}
+              <label>
+                <span>Repair request</span>
+                <textarea name="task" rows="5" autocomplete="off">fix this error</textarea>
+              </label>
+              <button type="submit">Start local factory</button>
+            </form>
+
+            <div class="factory-status" id="factory-status">
+              <span>Factory status:</span>
+              <strong>Idle</strong>
+              <p>No local repair task has been submitted yet.</p>
+            </div>
+          </section>
+        </div>
+
+      </section>
+    </main>
+    <script src="{% static 'js/app.js' %}?v=10"></script>
+  </body>
+</html>
+"""
+
+
+def reset_demo_state():
+    (BASE_DIR / "calculator/services.py").write_text(SERVICES_BASELINE, encoding="utf-8")
+    (BASE_DIR / "templates/calculator/index.html").write_text(TEMPLATE_BASELINE, encoding="utf-8")
+    (BASE_DIR / "demo_epoch.txt").write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+
+    status_file = BASE_DIR / "factory_status.json"
+    if status_file.exists():
+        status_file.unlink()
+
+    print("[factory] demo reset: baseline UI restored, division re-broken, status cleared", flush=True)

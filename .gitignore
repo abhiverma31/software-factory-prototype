@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+factory_status.json
+factory_runs/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+infra/terraform.tfvars
+infra/.terraform.lock.hcl
+demo_epoch.txt
+node_modules/
+npm-debug.log*
