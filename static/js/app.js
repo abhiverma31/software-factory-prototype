@@ -13,6 +13,8 @@ let pollTimer = null;
 let epochTimer = null;
 let shouldPollStatus = false;
 let activeJobId = null;
+const statusPollIntervalMs = 1000;
+const epochPollIntervalMs = 5000;
 
 function hasCalculatorOutput() {
   return document.querySelector(".result") !== null;
@@ -81,7 +83,7 @@ function scheduleEpochPoll() {
   }
   epochTimer = window.setTimeout(() => {
     ensureFreshDemoEpoch().finally(scheduleEpochPoll);
-  }, 1000);
+  }, epochPollIntervalMs);
 }
 
 function displayState(state) {
@@ -112,7 +114,7 @@ function scheduleStatusPoll() {
   if (pollTimer) {
     window.clearTimeout(pollTimer);
   }
-  pollTimer = window.setTimeout(fetchStatus, 1000);
+  pollTimer = window.setTimeout(fetchStatus, statusPollIntervalMs);
 }
 
 function isStaleStatus(payload) {
@@ -136,7 +138,7 @@ async function fetchStatus() {
     } else {
       renderStatus(payload);
       shouldPollStatus = payload.state === "running";
-      if (payload.state === "completed" || payload.state === "failed") {
+      if (payload.state === "completed" || payload.state === "failed" || payload.state === "unknown") {
         activeJobId = null;
       }
     }

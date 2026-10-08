@@ -8,7 +8,7 @@ from django.views.decorators.http import require_GET, require_POST
 from software_factory.demo_reset import reset_demo_state
 
 from .runner import start_factory
-from .status_store import read_status
+from .status_store import UNKNOWN_JOB_STATUS, read_status
 
 
 @require_POST
@@ -34,7 +34,7 @@ def status(request):
     job_id = request.GET.get("job_id")
     status_payload = read_status(job_id=job_id)
     if status_payload is None:
-        status_payload = read_status()
+        status_payload = {**UNKNOWN_JOB_STATUS, "job_id": job_id}
     return JsonResponse(status_payload)
 
 

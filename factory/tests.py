@@ -1,15 +1,32 @@
 import json
+import tempfile
+from pathlib import Path
 
 from django.conf import settings
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .status_store import clear_status, complete_status, read_status, start_status
 
 
-class FactoryViewTests(TestCase):
+class IsolatedStatusFileMixin:
+    def setUp(self):
+        super().setUp()
+        self.status_dir = tempfile.TemporaryDirectory()
+        self.settings_override = override_settings(
+            FACTORY_STATUS_FILE=Path(self.status_dir.name) / "factory_status.json"
+        )
+        self.settings_override.enable()
+
+    def tearDown(self):
+        self.settings_override.disable()
+        self.status_dir.cleanup()
+        super().tearDown()
+
+
+class FactoryViewTests(IsolatedStatusFileMixin, TestCase):
     def test_factory_rejects_empty_task(self):
         response = self.client.post(
             reverse("factory-fix"),
@@ -55,6 +72,15 @@ class FactoryViewTests(TestCase):
         self.assertEqual(response.json()["job_id"], "job-1")
         self.assertEqual(response.json()["state"], "running")
 
+    def test_status_returns_unknown_for_missing_job(self):
+        start_status("different job", job_id="job-2")
+
+        response = self.client.get(reverse("factory-status"), {"job_id": "job-1"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["job_id"], "job-1")
+        self.assertEqual(response.json()["state"], "unknown")
+
 
 class FactoryStatusCopyTests(TestCase):
     def test_status_is_clear_when_codex_is_missing(self):
@@ -62,10 +88,7 @@ class FactoryStatusCopyTests(TestCase):
         self.assertIn("Codex CLI", "Codex CLI was not found on PATH.")
 
 
-class FactoryStatusStoreTests(TestCase):
-    def tearDown(self):
-        clear_status()
-
+class FactoryStatusStoreTests(IsolatedStatusFileMixin, TestCase):
     def test_read_status_defaults_to_idle_when_missing(self):
         clear_status()
 

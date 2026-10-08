@@ -11,6 +11,12 @@ IDLE_STATUS = {
     "detail": "No factory run has started yet.",
 }
 
+UNKNOWN_JOB_STATUS = {
+    "state": "unknown",
+    "task": "",
+    "detail": "No status was found for this factory run.",
+}
+
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
