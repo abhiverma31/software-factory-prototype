@@ -142,6 +142,10 @@ resource "aws_lambda_function" "django" {
     aws_iam_role_policy_attachment.django_basic_execution,
     aws_iam_role_policy.django_status_s3,
   ]
+
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 }
 
 resource "aws_lambda_function_url" "django" {
