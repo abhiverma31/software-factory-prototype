@@ -37,3 +37,21 @@ variable "log_retention_days" {
   type        = number
   default     = 1
 }
+
+variable "django_image_uri" {
+  description = "Full ECR image URI for the Django Lambda. Leave blank on the first apply to create ECR only."
+  type        = string
+  default     = ""
+}
+
+variable "django_memory_mb" {
+  description = "Memory for the Django Lambda. Keep small for the prototype."
+  type        = number
+  default     = 256
+}
+
+variable "django_timeout_seconds" {
+  description = "Timeout for the Django Lambda."
+  type        = number
+  default     = 15
+}

@@ -8,6 +8,7 @@ db.sqlite3
 htmlcov/
 factory_status.json
 factory_runs/
+staticfiles/
 
 # Terraform
 .terraform/

@@ -1,3 +1,4 @@
 Django==6.1.1
+gunicorn==23.0.0
 pytest==9.1.1
-
+whitenoise==6.11.0

@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+db.sqlite3
+demo_epoch.txt
+factory_runs
+factory_status.json
+infra/.terraform
+infra/*.tfstate
+infra/*.tfstate.*
+node_modules

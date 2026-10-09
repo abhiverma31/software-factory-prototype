@@ -1,11 +1,27 @@
+import os
 from pathlib import Path
+
+
+def env_bool(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = "local-development-only"
-DEBUG = True
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "local-development-only")
+DEBUG = env_bool("DJANGO_DEBUG", True)
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost"])
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [])
 
 INSTALLED_APPS = [
     "django.contrib.staticfiles",
@@ -15,6 +31,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
     "software_factory.middleware.NoStoreMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -52,10 +69,16 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    }
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-FACTORY_STATUS_FILE = BASE_DIR / "factory_status.json"
-FACTORY_RUNS_DIR = BASE_DIR / "factory_runs"
+FACTORY_STATUS_FILE = Path(os.environ.get("FACTORY_STATUS_FILE", BASE_DIR / "factory_status.json"))
+FACTORY_RUNS_DIR = Path(os.environ.get("FACTORY_RUNS_DIR", BASE_DIR / "factory_runs"))
 
 
-DEMO_EPOCH_FILE = BASE_DIR / "demo_epoch.txt"
+DEMO_EPOCH_FILE = Path(os.environ.get("DEMO_EPOCH_FILE", BASE_DIR / "demo_epoch.txt"))

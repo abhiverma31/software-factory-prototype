@@ -7,3 +7,6 @@ environment  = "dev"
 
 # Keep this low for the cost-minimal prototype.
 log_retention_days = 1
+
+# Leave blank on first apply. Set this after pushing the Docker image to ECR.
+django_image_uri = ""

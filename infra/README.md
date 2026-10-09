@@ -2,26 +2,26 @@
 
 Terraform for the cost-minimal AWS prototype.
 
-## Step 1 resources
+## Resources
 
-This first step creates only:
+This stack creates:
 
 - Private S3 bucket for `factory/status.json`
 - CloudWatch log group for Django Lambda with 1-day retention
 - CloudWatch log group for factory worker with 1-day retention
+- ECR repository for the Django Lambda image
+- Optional Django Lambda + public Lambda Function URL once an image URI is supplied
 - Output names for OpenAI and GitHub SSM SecureString parameters
 
-No Lambda, Fargate, API Gateway, NAT Gateway, ALB, RDS, or always-on compute is created yet.
+No Fargate, API Gateway, NAT Gateway, ALB, RDS, or always-on compute is created yet.
 
-## Commands
+## Deploy Django UI to Lambda
 
 ```bash
 cd /Users/abhishekverma/software-factory/infra
 cp terraform.tfvars.example terraform.tfvars
 terraform init
-terraform plan
 terraform apply
-terraform destroy
 ```
 
 If using a personal AWS profile, set it in `terraform.tfvars`:
@@ -29,6 +29,38 @@ If using a personal AWS profile, set it in `terraform.tfvars`:
 ```hcl
 aws_profile = "personal"
 aws_region  = "us-east-1"
+```
+
+The first apply creates the ECR repository. Then build and push the image:
+
+```bash
+cd /Users/abhishekverma/software-factory
+AWS_REGION=$(terraform -chdir=infra output -raw aws_region 2>/dev/null || echo us-east-1)
+ECR_REPO=$(terraform -chdir=infra output -raw django_ecr_repository_url)
+ECR_REGISTRY="${ECR_REPO%/*}"
+aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+docker build -t software-factory-django:latest .
+docker tag software-factory-django:latest "$ECR_REPO:latest"
+docker push "$ECR_REPO:latest"
+```
+
+Set the pushed image URI in `infra/terraform.tfvars`:
+
+```hcl
+django_image_uri = "<django_ecr_repository_url>:latest"
+```
+
+Then apply again:
+
+```bash
+terraform -chdir=/Users/abhishekverma/software-factory/infra apply
+terraform -chdir=/Users/abhishekverma/software-factory/infra output -raw django_function_url
+```
+
+Open the printed Function URL in a browser. Destroy everything when done:
+
+```bash
+terraform -chdir=/Users/abhishekverma/software-factory/infra destroy
 ```
 
 ## Secrets
