@@ -61,3 +61,12 @@ variable "github_repository" {
   type        = string
   default     = "abhiverma31/software-factory-prototype"
 }
+
+variable "github_oidc_subjects" {
+  description = "Allowed GitHub OIDC subject claims for deploys."
+  type        = list(string)
+  default = [
+    "repo:abhiverma31/software-factory-prototype:ref:refs/heads/main",
+    "repo:abhiverma31@25632316/software-factory-prototype@1410590325:ref:refs/heads/main",
+  ]
+}

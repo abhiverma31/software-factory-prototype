@@ -13,3 +13,9 @@ django_image_uri = ""
 
 # GitHub repo allowed to deploy through Actions OIDC.
 github_repository = "abhiverma31/software-factory-prototype"
+
+# GitHub OIDC subject claims allowed to assume the deploy role.
+github_oidc_subjects = [
+  "repo:abhiverma31/software-factory-prototype:ref:refs/heads/main",
+  "repo:abhiverma31@25632316/software-factory-prototype@1410590325:ref:refs/heads/main",
+]
