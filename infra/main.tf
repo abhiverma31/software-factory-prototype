@@ -91,6 +91,26 @@ resource "aws_iam_role_policy_attachment" "django_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+data "aws_iam_policy_document" "django_status_s3" {
+  statement {
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.status.arn}/factory/status.json",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "django_status_s3" {
+  name   = "${local.name_prefix}-django-status-s3"
+  role   = aws_iam_role.django_lambda.id
+  policy = data.aws_iam_policy_document.django_status_s3.json
+}
+
 resource "aws_lambda_function" "django" {
   count = var.django_image_uri != "" ? 1 : 0
 
@@ -110,6 +130,9 @@ resource "aws_lambda_function" "django" {
       DEMO_EPOCH_FILE             = "/tmp/demo_epoch.txt"
       FACTORY_RUNS_DIR            = "/tmp/factory_runs"
       FACTORY_STATUS_FILE         = "/tmp/factory_status.json"
+      FACTORY_STATUS_BACKEND      = "s3"
+      FACTORY_STATUS_BUCKET       = aws_s3_bucket.status.bucket
+      FACTORY_STATUS_KEY          = "factory/status.json"
       SOFTWARE_FACTORY_SKIP_RESET = "1"
     }
   }
@@ -117,6 +140,7 @@ resource "aws_lambda_function" "django" {
   depends_on = [
     aws_cloudwatch_log_group.django,
     aws_iam_role_policy_attachment.django_basic_execution,
+    aws_iam_role_policy.django_status_s3,
   ]
 }
 
