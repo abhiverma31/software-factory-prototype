@@ -89,6 +89,9 @@ class FactoryStatusCopyTests(TestCase):
 
 
 class FactoryStatusStoreTests(IsolatedStatusFileMixin, TestCase):
+    def test_status_backend_defaults_to_file(self):
+        self.assertEqual(settings.FACTORY_STATUS_BACKEND, "file")
+
     def test_read_status_defaults_to_idle_when_missing(self):
         clear_status()
 

@@ -77,7 +77,10 @@ STORAGES = {
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+FACTORY_STATUS_BACKEND = os.environ.get("FACTORY_STATUS_BACKEND", "file")
 FACTORY_STATUS_FILE = Path(os.environ.get("FACTORY_STATUS_FILE", BASE_DIR / "factory_status.json"))
+FACTORY_STATUS_BUCKET = os.environ.get("FACTORY_STATUS_BUCKET", "")
+FACTORY_STATUS_KEY = os.environ.get("FACTORY_STATUS_KEY", "factory/status.json")
 FACTORY_RUNS_DIR = Path(os.environ.get("FACTORY_RUNS_DIR", BASE_DIR / "factory_runs"))
 
 
