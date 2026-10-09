@@ -47,3 +47,8 @@ output "github_token_parameter_name" {
   description = "SSM SecureString parameter name to create outside Terraform for the GitHub token."
   value       = local.github_token_parameter_name
 }
+
+output "github_actions_role_arn" {
+  description = "IAM role ARN GitHub Actions will assume through OIDC for Django deploys."
+  value       = aws_iam_role.github_actions_deploy.arn
+}

@@ -10,3 +10,6 @@ log_retention_days = 1
 
 # Leave blank on first apply. Set this after pushing the Docker image to ECR.
 django_image_uri = ""
+
+# GitHub repo allowed to deploy through Actions OIDC.
+github_repository = "abhiverma31/software-factory-prototype"

@@ -55,3 +55,9 @@ variable "django_timeout_seconds" {
   type        = number
   default     = 15
 }
+
+variable "github_repository" {
+  description = "GitHub repository allowed to deploy through OIDC, in owner/repo format."
+  type        = string
+  default     = "abhiverma31/software-factory-prototype"
+}
