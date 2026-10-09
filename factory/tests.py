@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from . import worker
 from .status_store import clear_status, complete_status, read_status, start_status, write_status
 
 
@@ -173,3 +175,21 @@ class FactoryS3StatusStoreTests(TestCase):
 
         self.assertEqual(read_status("job-1")["state"], "completed")
         client.get_object.assert_called_once_with(Bucket="status-bucket", Key="factory/status.json")
+
+
+class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
+    def test_dummy_worker_completes_job_from_environment(self):
+        start_status("dummy worker test", job_id="test-job-1")
+
+        with patch.dict(os.environ, {"JOB_ID": "test-job-1", "TASK_TEXT": "dummy worker test"}):
+            exit_code = worker.main()
+
+        status = read_status("test-job-1")
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(status["state"], "completed")
+        self.assertEqual(status["task"], "dummy worker test")
+        self.assertEqual(status["detail"], "Dummy worker completed.")
+
+    def test_dummy_worker_requires_job_id_and_task_text(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(worker.main(), 2)
