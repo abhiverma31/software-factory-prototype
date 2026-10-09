@@ -31,7 +31,7 @@ aws_profile = "personal"
 aws_region  = "us-east-1"
 ```
 
-The first apply creates the ECR repository. Then build and push the image:
+The first apply creates the ECR repository. Then build and push a Lambda-compatible image:
 
 ```bash
 cd /Users/abhishekverma/software-factory
@@ -39,9 +39,7 @@ AWS_REGION=$(terraform -chdir=infra output -raw aws_region 2>/dev/null || echo u
 ECR_REPO=$(terraform -chdir=infra output -raw django_ecr_repository_url)
 ECR_REGISTRY="${ECR_REPO%/*}"
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-docker build -t software-factory-django:latest .
-docker tag software-factory-django:latest "$ECR_REPO:latest"
-docker push "$ECR_REPO:latest"
+docker buildx build --platform linux/amd64 --provenance=false -t "$ECR_REPO:latest" --push .
 ```
 
 Set the pushed image URI in `infra/terraform.tfvars`:
