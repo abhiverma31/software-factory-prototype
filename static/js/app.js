@@ -15,6 +15,28 @@ let shouldPollStatus = false;
 let activeJobId = null;
 const statusPollIntervalMs = 1000;
 const epochPollIntervalMs = 5000;
+const activeJobStorageKey = "softwareFactoryActiveJobId";
+
+function loadActiveJobId() {
+  try {
+    return window.sessionStorage.getItem(activeJobStorageKey);
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveActiveJobId(jobId) {
+  activeJobId = jobId || null;
+  try {
+    if (activeJobId) {
+      window.sessionStorage.setItem(activeJobStorageKey, activeJobId);
+    } else {
+      window.sessionStorage.removeItem(activeJobStorageKey);
+    }
+  } catch (error) {
+    // Ignore storage failures; polling still works until the page reloads.
+  }
+}
 
 function hasCalculatorOutput() {
   return document.querySelector(".result") !== null;
@@ -139,7 +161,7 @@ async function fetchStatus() {
       renderStatus(payload);
       shouldPollStatus = payload.state === "running";
       if (payload.state === "completed" || payload.state === "failed" || payload.state === "unknown") {
-        activeJobId = null;
+        saveActiveJobId(null);
       }
     }
   } catch (error) {
@@ -166,12 +188,13 @@ if (resetButton) {
       cache: "no-store",
     });
 
-    activeJobId = null;
+    saveActiveJobId(null);
     window.location.replace("/");
   });
 }
 
 if (form) {
+  saveActiveJobId(loadActiveJobId());
   clearBrowserRestoredCalculatorState();
 
   if (calculatorForm) {
@@ -215,12 +238,13 @@ if (form) {
     });
 
     const payload = await response.json();
-    activeJobId = payload.job_id || null;
+    saveActiveJobId(payload.job_id || null);
     renderStatus(payload);
     scheduleStatusPoll();
   });
 
   ensureFreshDemoEpoch().finally(() => {
+    shouldPollStatus = Boolean(activeJobId);
     fetchStatus();
     scheduleEpochPoll();
   });
