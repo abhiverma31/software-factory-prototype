@@ -3,12 +3,12 @@ import tempfile
 from pathlib import Path
 
 from django.conf import settings
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .status_store import clear_status, complete_status, read_status, start_status
+from .status_store import clear_status, complete_status, read_status, start_status, write_status
 
 
 class IsolatedStatusFileMixin:
@@ -136,3 +136,40 @@ class FactoryStatusStoreTests(IsolatedStatusFileMixin, TestCase):
         self.assertTrue(settings.FACTORY_STATUS_FILE.exists())
         self.assertEqual(read_status()["state"], "idle")
         self.assertIsNone(read_status()["job_id"])
+
+
+class FactoryS3StatusStoreTests(TestCase):
+    @override_settings(
+        FACTORY_STATUS_BACKEND="s3",
+        FACTORY_STATUS_BUCKET="status-bucket",
+        FACTORY_STATUS_KEY="factory/status.json",
+    )
+    @patch("factory.status_store.s3_client")
+    def test_write_status_puts_json_in_s3(self, s3_client):
+        client = Mock()
+        s3_client.return_value = client
+
+        write_status({"state": "running", "job_id": "job-1"})
+
+        client.put_object.assert_called_once_with(
+            Bucket="status-bucket",
+            Key="factory/status.json",
+            Body=json.dumps({"state": "running", "job_id": "job-1"}, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+
+    @override_settings(
+        FACTORY_STATUS_BACKEND="s3",
+        FACTORY_STATUS_BUCKET="status-bucket",
+        FACTORY_STATUS_KEY="factory/status.json",
+    )
+    @patch("factory.status_store.s3_client")
+    def test_read_status_reads_json_from_s3(self, s3_client):
+        body = Mock()
+        body.read.return_value = b'{"state": "completed", "job_id": "job-1"}'
+        client = Mock()
+        client.get_object.return_value = {"Body": body}
+        s3_client.return_value = client
+
+        self.assertEqual(read_status("job-1")["state"], "completed")
+        client.get_object.assert_called_once_with(Bucket="status-bucket", Key="factory/status.json")

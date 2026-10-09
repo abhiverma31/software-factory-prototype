@@ -2,6 +2,8 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import boto3
+from botocore.exceptions import ClientError
 from django.conf import settings
 
 
@@ -26,18 +28,63 @@ def new_job_id():
     return str(uuid4())
 
 
-def read_status(job_id=None):
+def using_s3():
+    return settings.FACTORY_STATUS_BACKEND == "s3"
+
+
+def s3_client():
+    return boto3.client("s3")
+
+
+def read_status_payload():
+    if using_s3():
+        if not settings.FACTORY_STATUS_BUCKET:
+            raise ValueError("FACTORY_STATUS_BUCKET is required when FACTORY_STATUS_BACKEND=s3.")
+
+        try:
+            response = s3_client().get_object(
+                Bucket=settings.FACTORY_STATUS_BUCKET,
+                Key=settings.FACTORY_STATUS_KEY,
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"NoSuchKey", "404"}:
+                return None
+            raise
+
+        return json.loads(response["Body"].read().decode("utf-8"))
+
     if not settings.FACTORY_STATUS_FILE.exists():
+        return None
+
+    return json.loads(settings.FACTORY_STATUS_FILE.read_text(encoding="utf-8"))
+
+
+def read_status(job_id=None):
+    status = read_status_payload()
+    if status is None:
         return IDLE_STATUS.copy()
 
-    status = json.loads(settings.FACTORY_STATUS_FILE.read_text(encoding="utf-8"))
     if job_id is not None and status.get("job_id") != job_id:
         return None
     return status
 
 
 def write_status(payload):
-    settings.FACTORY_STATUS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    status_json = json.dumps(payload, indent=2)
+
+    if using_s3():
+        if not settings.FACTORY_STATUS_BUCKET:
+            raise ValueError("FACTORY_STATUS_BUCKET is required when FACTORY_STATUS_BACKEND=s3.")
+
+        s3_client().put_object(
+            Bucket=settings.FACTORY_STATUS_BUCKET,
+            Key=settings.FACTORY_STATUS_KEY,
+            Body=status_json.encode("utf-8"),
+            ContentType="application/json",
+        )
+        return payload
+
+    settings.FACTORY_STATUS_FILE.write_text(status_json, encoding="utf-8")
     return payload
 
 
