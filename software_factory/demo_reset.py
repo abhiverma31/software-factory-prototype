@@ -106,8 +106,8 @@ TEMPLATE_BASELINE = """{% load static %}
             <form id="factory-form" class="factory-form" autocomplete="off">
               {% csrf_token %}
               <label>
-                <span>Repair request</span>
-                <textarea name="task" rows="5" autocomplete="off">fix this error</textarea>
+                <span>Factory request</span>
+                <textarea name="task" rows="5" autocomplete="off" placeholder="Describe what you want the factory to change, fix, or add."></textarea>
               </label>
               <button type="submit">Start local factory</button>
             </form>
