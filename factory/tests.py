@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from .runner import start_factory
 from . import worker
 from .status_store import clear_status, complete_status, read_status, start_status, write_status
 
@@ -88,6 +89,41 @@ class FactoryStatusCopyTests(TestCase):
     def test_status_is_clear_when_codex_is_missing(self):
         # The local worker writes this state when Codex CLI is unavailable.
         self.assertIn("Codex CLI", "Codex CLI was not found on PATH.")
+
+
+class FactoryRunnerTests(IsolatedStatusFileMixin, TestCase):
+    @patch("factory.runner.subprocess.Popen")
+    def test_local_runner_starts_local_agent(self, popen):
+        status = start_factory("fix local thing")
+
+        self.assertEqual(status["state"], "running")
+        popen.assert_called_once()
+
+    @override_settings(
+        FACTORY_RUNNER_BACKEND="ecs",
+        FACTORY_ECS_CLUSTER="cluster-name",
+        FACTORY_ECS_TASK_DEFINITION="task-def-arn",
+        FACTORY_ECS_SUBNETS=["subnet-1"],
+        FACTORY_ECS_ASSIGN_PUBLIC_IP="ENABLED",
+        FACTORY_WORKER_CONTAINER_NAME="worker",
+    )
+    @patch("factory.runner.boto3.client")
+    def test_ecs_runner_starts_fargate_task(self, boto3_client):
+        ecs = Mock()
+        ecs.run_task.return_value = {"tasks": [{"taskArn": "task-arn"}], "failures": []}
+        boto3_client.return_value = ecs
+
+        status = start_factory("dummy fargate worker test")
+
+        self.assertEqual(status["state"], "running")
+        ecs.run_task.assert_called_once()
+        call_kwargs = ecs.run_task.call_args.kwargs
+        self.assertEqual(call_kwargs["cluster"], "cluster-name")
+        self.assertEqual(call_kwargs["taskDefinition"], "task-def-arn")
+        self.assertEqual(call_kwargs["networkConfiguration"]["awsvpcConfiguration"]["subnets"], ["subnet-1"])
+        env = call_kwargs["overrides"]["containerOverrides"][0]["environment"]
+        self.assertIn({"name": "JOB_ID", "value": status["job_id"]}, env)
+        self.assertIn({"name": "TASK_TEXT", "value": "dummy fargate worker test"}, env)
 
 
 class FactoryStatusStoreTests(IsolatedStatusFileMixin, TestCase):

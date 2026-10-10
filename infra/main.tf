@@ -104,6 +104,17 @@ resource "aws_ecs_cluster" "factory" {
   name = "${local.name_prefix}-cluster"
 }
 
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
 data "aws_iam_policy_document" "ecs_tasks_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -233,6 +244,35 @@ resource "aws_iam_role_policy" "django_status_s3" {
   policy = data.aws_iam_policy_document.django_status_s3.json
 }
 
+data "aws_iam_policy_document" "django_run_worker" {
+  statement {
+    actions = [
+      "ecs:RunTask",
+    ]
+
+    resources = [
+      aws_ecs_task_definition.worker.arn,
+    ]
+  }
+
+  statement {
+    actions = [
+      "iam:PassRole",
+    ]
+
+    resources = [
+      aws_iam_role.worker_execution.arn,
+      aws_iam_role.worker_task.arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "django_run_worker" {
+  name   = "${local.name_prefix}-django-run-worker"
+  role   = aws_iam_role.django_lambda.id
+  policy = data.aws_iam_policy_document.django_run_worker.json
+}
+
 resource "aws_lambda_function" "django" {
   count = var.django_image_uri != "" ? 1 : 0
 
@@ -246,16 +286,22 @@ resource "aws_lambda_function" "django" {
 
   environment {
     variables = {
-      DJANGO_ALLOWED_HOSTS        = "*"
-      DJANGO_DEBUG                = "false"
-      DJANGO_SECRET_KEY           = "prototype-lambda-secret"
-      DEMO_EPOCH_FILE             = "/tmp/demo_epoch.txt"
-      FACTORY_RUNS_DIR            = "/tmp/factory_runs"
-      FACTORY_STATUS_FILE         = "/tmp/factory_status.json"
-      FACTORY_STATUS_BACKEND      = "s3"
-      FACTORY_STATUS_BUCKET       = aws_s3_bucket.status.bucket
-      FACTORY_STATUS_KEY          = "factory/status.json"
-      SOFTWARE_FACTORY_SKIP_RESET = "1"
+      DJANGO_ALLOWED_HOSTS          = "*"
+      DJANGO_DEBUG                  = "false"
+      DJANGO_SECRET_KEY             = "prototype-lambda-secret"
+      DEMO_EPOCH_FILE               = "/tmp/demo_epoch.txt"
+      FACTORY_RUNS_DIR              = "/tmp/factory_runs"
+      FACTORY_STATUS_FILE           = "/tmp/factory_status.json"
+      FACTORY_STATUS_BACKEND        = "s3"
+      FACTORY_STATUS_BUCKET         = aws_s3_bucket.status.bucket
+      FACTORY_STATUS_KEY            = "factory/status.json"
+      FACTORY_RUNNER_BACKEND        = "ecs"
+      FACTORY_ECS_CLUSTER           = aws_ecs_cluster.factory.name
+      FACTORY_ECS_TASK_DEFINITION   = aws_ecs_task_definition.worker.arn
+      FACTORY_ECS_SUBNETS           = join(",", data.aws_subnets.default.ids)
+      FACTORY_ECS_ASSIGN_PUBLIC_IP  = "ENABLED"
+      FACTORY_WORKER_CONTAINER_NAME = "worker"
+      SOFTWARE_FACTORY_SKIP_RESET   = "1"
     }
   }
 
@@ -263,6 +309,7 @@ resource "aws_lambda_function" "django" {
     aws_cloudwatch_log_group.django,
     aws_iam_role_policy_attachment.django_basic_execution,
     aws_iam_role_policy.django_status_s3,
+    aws_iam_role_policy.django_run_worker,
   ]
 
   lifecycle {
