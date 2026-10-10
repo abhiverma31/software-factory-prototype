@@ -224,18 +224,53 @@ class FactoryS3StatusStoreTests(TestCase):
 
 
 class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
-    def test_dummy_worker_completes_job_from_environment(self):
-        start_status("dummy worker test", job_id="test-job-1")
+    @patch("factory.worker.subprocess.run")
+    def test_clone_repository_uses_shallow_git_clone(self, run):
+        worker.clone_repository("https://github.com/example/repo.git", Path("/tmp/workspace"))
 
-        with patch.dict(os.environ, {"JOB_ID": "test-job-1", "TASK_TEXT": "dummy worker test"}):
+        run.assert_called_once_with(
+            ["git", "clone", "--depth", "1", "https://github.com/example/repo.git", "/tmp/workspace"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_count_workspace_files_ignores_git_metadata(self):
+        workspace = Path(self.status_dir.name) / "workspace"
+        (workspace / "factory").mkdir(parents=True)
+        (workspace / "factory" / "worker.py").write_text("print('worker')", encoding="utf-8")
+        (workspace / ".git" / "objects").mkdir(parents=True)
+        (workspace / ".git" / "objects" / "ignored").write_text("metadata", encoding="utf-8")
+
+        self.assertEqual(worker.count_workspace_files(workspace), 1)
+
+    @patch("factory.worker.count_workspace_files", return_value=42)
+    @patch("factory.worker.clone_repository")
+    def test_worker_clones_repo_and_completes_job_from_environment(self, clone_repository, count_workspace_files):
+        start_status("clone repo test", job_id="test-job-1")
+
+        with patch.dict(
+            os.environ,
+            {
+                "JOB_ID": "test-job-1",
+                "TASK_TEXT": "clone repo test",
+                "FACTORY_REPO_URL": "https://github.com/abhiverma31/software-factory-prototype.git",
+                "FACTORY_WORKSPACE_DIR": "/tmp/test-workspace",
+            },
+        ):
             exit_code = worker.main()
 
         status = read_status("test-job-1")
         self.assertEqual(exit_code, 0)
+        clone_repository.assert_called_once_with(
+            "https://github.com/abhiverma31/software-factory-prototype.git",
+            Path("/tmp/test-workspace"),
+        )
+        count_workspace_files.assert_called_once_with(Path("/tmp/test-workspace"))
         self.assertEqual(status["state"], "completed")
-        self.assertEqual(status["task"], "dummy worker test")
-        self.assertEqual(status["detail"], "Dummy worker completed.")
+        self.assertEqual(status["task"], "clone repo test")
+        self.assertEqual(status["detail"], "Repository cloned successfully. Found 42 files.")
 
-    def test_dummy_worker_requires_job_id_and_task_text(self):
+    def test_worker_requires_job_id_task_text_and_repo_url(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(worker.main(), 2)

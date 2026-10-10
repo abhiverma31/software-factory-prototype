@@ -189,6 +189,14 @@ resource "aws_ecs_task_definition" "worker" {
           name  = "FACTORY_STATUS_KEY"
           value = "factory/status.json"
         },
+        {
+          name  = "FACTORY_REPO_URL"
+          value = "https://github.com/${var.github_repository}.git"
+        },
+        {
+          name  = "FACTORY_WORKSPACE_DIR"
+          value = "/tmp/software-factory-workspace"
+        },
       ]
 
       logConfiguration = {
