@@ -38,6 +38,12 @@ def count_workspace_files(workspace):
     return sum(1 for path in workspace.rglob("*") if path.is_file() and ".git" not in path.parts)
 
 
+def write_factory_marker(workspace, job_id, task):
+    marker = workspace / "factory_run.txt"
+    marker.write_text(f"Job ID: {job_id}\nTask: {task}\n", encoding="utf-8")
+    return marker
+
+
 def main():
     try:
         job_id = required_env("JOB_ID")
@@ -73,16 +79,24 @@ def main():
         print(f"[worker] clone failed job_id={job_id}: {detail}", flush=True)
         return 1
 
-    file_count = count_workspace_files(workspace)
+    before_count = count_workspace_files(workspace)
+    marker = write_factory_marker(workspace, job_id, task)
+    after_count = count_workspace_files(workspace)
     complete_status(
         job_id,
         {
             "state": "completed",
             "task": task,
-            "detail": f"Repository cloned successfully. Found {file_count} files.",
+            "detail": (
+                "Repository cloned successfully. "
+                f"File count changed from {before_count} to {after_count} after writing {marker.name}."
+            ),
         },
     )
-    print(f"[worker] cloned repository job_id={job_id} files={file_count}", flush=True)
+    print(
+        f"[worker] cloned repository job_id={job_id} files_before={before_count} files_after={after_count}",
+        flush=True,
+    )
     return 0
 
 

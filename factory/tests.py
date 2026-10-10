@@ -244,9 +244,26 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
 
         self.assertEqual(worker.count_workspace_files(workspace), 1)
 
-    @patch("factory.worker.count_workspace_files", return_value=42)
+    def test_write_factory_marker_adds_workspace_file(self):
+        workspace = Path(self.status_dir.name) / "workspace"
+        workspace.mkdir()
+
+        marker = worker.write_factory_marker(workspace, "job-1", "clone")
+
+        self.assertEqual(marker.name, "factory_run.txt")
+        self.assertIn("Job ID: job-1", marker.read_text(encoding="utf-8"))
+        self.assertIn("Task: clone", marker.read_text(encoding="utf-8"))
+
+    @patch("factory.worker.write_factory_marker")
+    @patch("factory.worker.count_workspace_files", side_effect=[44, 45])
     @patch("factory.worker.clone_repository")
-    def test_worker_clones_repo_and_completes_job_from_environment(self, clone_repository, count_workspace_files):
+    def test_worker_clones_repo_writes_marker_and_completes_job(
+        self,
+        clone_repository,
+        count_workspace_files,
+        write_factory_marker,
+    ):
+        write_factory_marker.return_value = Path("/tmp/test-workspace/factory_run.txt")
         start_status("clone repo test", job_id="test-job-1")
 
         with patch.dict(
@@ -266,10 +283,15 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             "https://github.com/abhiverma31/software-factory-prototype.git",
             Path("/tmp/test-workspace"),
         )
-        count_workspace_files.assert_called_once_with(Path("/tmp/test-workspace"))
+        self.assertEqual(count_workspace_files.call_count, 2)
+        count_workspace_files.assert_any_call(Path("/tmp/test-workspace"))
+        write_factory_marker.assert_called_once_with(Path("/tmp/test-workspace"), "test-job-1", "clone repo test")
         self.assertEqual(status["state"], "completed")
         self.assertEqual(status["task"], "clone repo test")
-        self.assertEqual(status["detail"], "Repository cloned successfully. Found 42 files.")
+        self.assertEqual(
+            status["detail"],
+            "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt.",
+        )
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):
         with patch.dict(os.environ, {}, clear=True):
