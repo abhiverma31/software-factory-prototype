@@ -117,7 +117,7 @@ function displayState(state) {
 
 function statusDetail(payload) {
   if (payload.state === "completed") {
-    return "";
+    return payload.detail || "";
   }
 
   if (payload.state === "failed") {
