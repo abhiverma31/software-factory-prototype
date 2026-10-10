@@ -95,7 +95,7 @@ def start_status(task, job_id=None):
             "state": "running",
             "task": task,
             "updated_at": now_iso(),
-            "detail": "Local factory process started.",
+            "detail": "Factory worker started.",
         }
     )
 

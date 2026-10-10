@@ -75,6 +75,16 @@ class FactoryViewTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(response.json()["job_id"], "job-1")
         self.assertEqual(response.json()["state"], "running")
 
+    def test_status_without_job_id_returns_idle(self):
+        start_status("old completed job", job_id="old-job")
+        complete_status("old-job", {"state": "completed", "task": "old completed job"})
+
+        response = self.client.get(reverse("factory-status"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["state"], "idle")
+        self.assertNotIn("job_id", response.json())
+
     def test_status_returns_unknown_for_missing_job(self):
         start_status("different job", job_id="job-2")
 
