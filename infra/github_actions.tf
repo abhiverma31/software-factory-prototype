@@ -61,7 +61,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "ecr:PutImage",
       "ecr:UploadLayerPart",
     ]
-    resources = [aws_ecr_repository.django.arn]
+    resources = [
+      aws_ecr_repository.django.arn,
+      aws_ecr_repository.worker.arn,
+    ]
   }
 
   statement {

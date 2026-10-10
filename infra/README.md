@@ -10,6 +10,11 @@ This stack creates:
 - CloudWatch log group for Django Lambda with 1-day retention
 - CloudWatch log group for factory worker with 1-day retention
 - ECR repository for the Django Lambda image
+- ECR repository for the factory worker image
+- ECS cluster for one-off Fargate worker tasks
+- ECS task execution role for pulling worker images and writing logs
+- ECS task role for worker access to `factory/status.json`
+- ECS task definition for the factory worker image
 - Optional Django Lambda + public Lambda Function URL once an image URI is supplied
 - Output names for OpenAI and GitHub SSM SecureString parameters
 

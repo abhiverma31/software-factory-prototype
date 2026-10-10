@@ -7,6 +7,7 @@ locals {
 
   django_function_name = "${local.name_prefix}-django"
   django_ecr_repo_name = "${local.name_prefix}-django"
+  worker_ecr_repo_name = "${local.name_prefix}-worker"
 
   status_bucket_name = "${local.name_prefix}-status-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
 

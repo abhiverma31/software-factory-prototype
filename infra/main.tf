@@ -28,6 +28,36 @@ resource "aws_ecr_lifecycle_policy" "django" {
   })
 }
 
+resource "aws_ecr_repository" "worker" {
+  name         = local.worker_ecr_repo_name
+  force_delete = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "worker" {
+  repository = aws_ecr_repository.worker.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Keep the last three prototype worker images"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 3
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_s3_bucket" "status" {
   bucket        = local.status_bucket_name
   force_destroy = true
@@ -68,6 +98,98 @@ resource "aws_cloudwatch_log_group" "django" {
 resource "aws_cloudwatch_log_group" "factory" {
   name              = "/${var.project_name}/${var.environment}/factory"
   retention_in_days = var.log_retention_days
+}
+
+resource "aws_ecs_cluster" "factory" {
+  name = "${local.name_prefix}-cluster"
+}
+
+data "aws_iam_policy_document" "ecs_tasks_assume_role" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "worker_execution" {
+  name               = "${local.name_prefix}-worker-execution"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "worker_execution" {
+  role       = aws_iam_role.worker_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_iam_role" "worker_task" {
+  name               = "${local.name_prefix}-worker-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume_role.json
+}
+
+data "aws_iam_policy_document" "worker_status_s3" {
+  statement {
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.status.arn}/factory/status.json",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "worker_status_s3" {
+  name   = "${local.name_prefix}-worker-status-s3"
+  role   = aws_iam_role.worker_task.id
+  policy = data.aws_iam_policy_document.worker_status_s3.json
+}
+
+resource "aws_ecs_task_definition" "worker" {
+  family                   = "${local.name_prefix}-worker"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.worker_execution.arn
+  task_role_arn            = aws_iam_role.worker_task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "worker"
+      image     = "${aws_ecr_repository.worker.repository_url}:latest"
+      essential = true
+
+      environment = [
+        {
+          name  = "FACTORY_STATUS_BACKEND"
+          value = "s3"
+        },
+        {
+          name  = "FACTORY_STATUS_BUCKET"
+          value = aws_s3_bucket.status.bucket
+        },
+        {
+          name  = "FACTORY_STATUS_KEY"
+          value = "factory/status.json"
+        },
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.factory.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "worker"
+        }
+      }
+    }
+  ])
 }
 
 data "aws_iam_policy_document" "lambda_assume_role" {
