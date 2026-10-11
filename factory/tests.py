@@ -307,6 +307,43 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(worker.prompt_preview("short", limit=10), "short")
         self.assertEqual(worker.prompt_preview("12345678901", limit=10), "1234567890...")
 
+    def test_factory_branch_name_uses_short_safe_job_id(self):
+        self.assertEqual(worker.factory_branch_name("9955717a-efdc-419c"), "factory/9955717a-efd")
+        self.assertEqual(worker.factory_branch_name("job/id with spaces"), "factory/job-id-with-")
+
+    @patch("factory.worker.subprocess.run")
+    def test_create_factory_commit_creates_branch_and_commits_marker(self, run):
+        run.return_value.stdout = "abc123\n"
+
+        commit_sha = worker.create_factory_commit(
+            Path("/tmp/workspace"),
+            "factory/test-job-1",
+            Path("/tmp/workspace/factory_run.txt"),
+        )
+
+        self.assertEqual(commit_sha, "abc123")
+        run.assert_any_call(["git", "config", "user.name", "Software Factory"], cwd=Path("/tmp/workspace"), check=True)
+        run.assert_any_call(
+            ["git", "config", "user.email", "software-factory@example.local"],
+            cwd=Path("/tmp/workspace"),
+            check=True,
+        )
+        run.assert_any_call(["git", "checkout", "-b", "factory/test-job-1"], cwd=Path("/tmp/workspace"), check=True)
+        run.assert_any_call(["git", "add", "factory_run.txt"], cwd=Path("/tmp/workspace"), check=True)
+        run.assert_any_call(
+            ["git", "commit", "-m", "Factory proof for factory/test-job-1"],
+            cwd=Path("/tmp/workspace"),
+            check=True,
+        )
+        run.assert_any_call(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path("/tmp/workspace"),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    @patch("factory.worker.create_factory_commit", return_value="abc123")
     @patch("factory.worker.write_factory_marker")
     @patch("factory.worker.count_workspace_files", side_effect=[44, 45])
     @patch("factory.worker.clone_repository")
@@ -315,6 +352,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         clone_repository,
         count_workspace_files,
         write_factory_marker,
+        create_factory_commit,
     ):
         write_factory_marker.return_value = Path("/tmp/test-workspace/factory_run.txt")
         start_status("clone repo test", job_id="test-job-1")
@@ -342,13 +380,20 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         marker_args = write_factory_marker.call_args.args
         self.assertEqual(marker_args[:3], (Path("/tmp/test-workspace"), "test-job-1", "clone repo test"))
         self.assertIn("boom", marker_args[3])
+        create_factory_commit.assert_called_once_with(
+            Path("/tmp/test-workspace"),
+            "factory/test-job-1",
+            Path("/tmp/test-workspace/factory_run.txt"),
+        )
         self.assertEqual(status["state"], "completed")
         self.assertEqual(status["task"], "clone repo test")
         self.assertEqual(
             status["detail"],
             "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt. "
-            "Prepared Codex prompt with request context.",
+            "Created a local factory branch and commit.",
         )
+        self.assertEqual(status["branch_name"], "factory/test-job-1")
+        self.assertEqual(status["commit_sha"], "abc123")
         self.assertIn("boom", status["prompt_preview"])
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):

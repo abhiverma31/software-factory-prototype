@@ -87,10 +87,37 @@ def prompt_preview(prompt, limit=1000):
     return f"{prompt[:limit]}..."
 
 
+def factory_branch_name(job_id):
+    safe_job_id = "".join(character if character.isalnum() or character in "-_" else "-" for character in job_id)
+    return f"factory/{safe_job_id[:12]}"
+
+
 def write_factory_marker(workspace, job_id, task, prompt):
     marker = workspace / "factory_run.txt"
     marker.write_text(f"Job ID: {job_id}\nTask: {task}\n\nPrepared Codex prompt:\n{prompt}\n", encoding="utf-8")
     return marker
+
+
+def configure_git_author(workspace):
+    author_name = os.environ.get("FACTORY_GIT_AUTHOR_NAME", "Software Factory")
+    author_email = os.environ.get("FACTORY_GIT_AUTHOR_EMAIL", "software-factory@example.local")
+    subprocess.run(["git", "config", "user.name", author_name], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.email", author_email], cwd=workspace, check=True)
+
+
+def create_factory_commit(workspace, branch_name, marker):
+    configure_git_author(workspace)
+    subprocess.run(["git", "checkout", "-b", branch_name], cwd=workspace, check=True)
+    subprocess.run(["git", "add", marker.name], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "-m", f"Factory proof for {branch_name}"], cwd=workspace, check=True)
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def main():
@@ -133,6 +160,24 @@ def main():
     before_count = count_workspace_files(workspace)
     marker = write_factory_marker(workspace, job_id, task, codex_prompt)
     after_count = count_workspace_files(workspace)
+    branch_name = factory_branch_name(job_id)
+
+    try:
+        commit_sha = create_factory_commit(workspace, branch_name, marker)
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() if exc.stderr else "Factory commit failed."
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": detail,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] commit failed job_id={job_id}: {detail}", flush=True)
+        return 1
+
     complete_status(
         job_id,
         {
@@ -141,13 +186,18 @@ def main():
             "detail": (
                 "Repository cloned successfully. "
                 f"File count changed from {before_count} to {after_count} after writing {marker.name}. "
-                "Prepared Codex prompt with request context."
+                "Created a local factory branch and commit."
             ),
+            "branch_name": branch_name,
+            "commit_sha": commit_sha,
             "prompt_preview": prompt_preview(codex_prompt),
         },
     )
     print(
-        f"[worker] cloned repository job_id={job_id} files_before={before_count} files_after={after_count}",
+        (
+            f"[worker] committed repository job_id={job_id} branch={branch_name} "
+            f"commit={commit_sha} files_before={before_count} files_after={after_count}"
+        ),
         flush=True,
     )
     return 0
