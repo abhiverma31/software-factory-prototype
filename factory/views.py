@@ -3,6 +3,7 @@ from json import JSONDecodeError
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from software_factory.demo_reset import reset_demo_state
@@ -11,6 +12,7 @@ from .runner import start_factory
 from .status_store import IDLE_STATUS, UNKNOWN_JOB_STATUS, read_status
 
 
+@csrf_exempt
 @require_POST
 def fix(request):
     if request.content_type == "application/json":
