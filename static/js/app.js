@@ -13,6 +13,7 @@ let pollTimer = null;
 let epochTimer = null;
 let shouldPollStatus = false;
 let activeJobId = null;
+let lastCalculatorContext = null;
 const statusPollIntervalMs = 1000;
 const epochPollIntervalMs = 5000;
 const activeJobStorageKey = "softwareFactoryActiveJobId";
@@ -84,6 +85,18 @@ function renderCalculatorOutput(payload) {
 
   result.append(label, value);
   calculatorOutput.append(result);
+}
+
+function buildCalculatorContext(data, payload) {
+  return {
+    calculator: {
+      left: data.get("left"),
+      right: data.get("right"),
+      operation: data.get("operation"),
+      result: payload.result ?? null,
+      error: payload.error || null,
+    },
+  };
 }
 
 async function ensureFreshDemoEpoch() {
@@ -217,7 +230,9 @@ if (form) {
         cache: "no-store",
       });
 
-      renderCalculatorOutput(await response.json());
+      const payload = await response.json();
+      lastCalculatorContext = buildCalculatorContext(data, payload);
+      renderCalculatorOutput(payload);
     });
   }
 
@@ -233,7 +248,10 @@ if (form) {
         "Content-Type": "application/json",
         "X-CSRFToken": token,
       },
-      body: JSON.stringify({ task: data.get("task") }),
+      body: JSON.stringify({
+        task: data.get("task"),
+        context: lastCalculatorContext,
+      }),
       cache: "no-store",
     });
 

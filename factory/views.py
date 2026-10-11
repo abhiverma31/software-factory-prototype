@@ -19,14 +19,16 @@ def fix(request):
         except JSONDecodeError:
             return JsonResponse({"error": "Request body must be valid JSON."}, status=400)
         task = payload.get("task", "")
+        context = payload.get("context") or {}
     else:
         task = request.POST.get("task", "")
+        context = {}
 
     task = task.strip()
     if not task:
         return JsonResponse({"error": "Task text is required."}, status=400)
 
-    return JsonResponse(start_factory(task), status=202)
+    return JsonResponse(start_factory(task, context), status=202)
 
 
 @require_GET

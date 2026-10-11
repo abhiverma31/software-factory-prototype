@@ -66,6 +66,32 @@ class FactoryViewTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(response.json()["state"], "running")
         self.assertIn("calculator failure", response.json()["task"])
 
+    @patch("factory.views.start_factory")
+    def test_factory_passes_context_to_runner(self, start_factory):
+        start_factory.return_value = {
+            "job_id": "job-1",
+            "state": "running",
+            "task": "fix this",
+            "detail": "Factory worker started.",
+        }
+        context = {
+            "calculator": {
+                "left": "84",
+                "right": "2",
+                "operation": "divide",
+                "error": "ZeroDivisionError: division by zero",
+            }
+        }
+
+        response = self.client.post(
+            reverse("factory-fix"),
+            data=json.dumps({"task": "fix this", "context": context}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        start_factory.assert_called_once_with("fix this", context)
+
     def test_status_can_be_read_for_current_job(self):
         start_status("fix this error", job_id="job-1")
 
@@ -123,7 +149,9 @@ class FactoryRunnerTests(IsolatedStatusFileMixin, TestCase):
         ecs.run_task.return_value = {"tasks": [{"taskArn": "task-arn"}], "failures": []}
         boto3_client.return_value = ecs
 
-        status = start_factory("dummy fargate worker test")
+        context = {"calculator": {"operation": "divide", "error": "ZeroDivisionError: division by zero"}}
+
+        status = start_factory("dummy fargate worker test", context)
 
         self.assertEqual(status["state"], "running")
         ecs.run_task.assert_called_once()
@@ -134,6 +162,7 @@ class FactoryRunnerTests(IsolatedStatusFileMixin, TestCase):
         env = call_kwargs["overrides"]["containerOverrides"][0]["environment"]
         self.assertIn({"name": "JOB_ID", "value": status["job_id"]}, env)
         self.assertIn({"name": "TASK_TEXT", "value": "dummy fargate worker test"}, env)
+        self.assertIn({"name": "TASK_CONTEXT", "value": json.dumps(context)}, env)
 
 
 class FactoryStatusStoreTests(IsolatedStatusFileMixin, TestCase):
@@ -248,11 +277,31 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         workspace = Path(self.status_dir.name) / "workspace"
         workspace.mkdir()
 
-        marker = worker.write_factory_marker(workspace, "job-1", "clone")
+        prompt = "User request:\nclone"
+        marker = worker.write_factory_marker(workspace, "job-1", "clone", prompt)
 
         self.assertEqual(marker.name, "factory_run.txt")
-        self.assertIn("Job ID: job-1", marker.read_text(encoding="utf-8"))
-        self.assertIn("Task: clone", marker.read_text(encoding="utf-8"))
+        marker_text = marker.read_text(encoding="utf-8")
+        self.assertIn("Job ID: job-1", marker_text)
+        self.assertIn("Task: clone", marker_text)
+        self.assertIn(prompt, marker_text)
+
+    def test_build_codex_prompt_includes_calculator_error_context(self):
+        prompt = worker.build_codex_prompt(
+            "fix this",
+            {
+                "calculator": {
+                    "left": "84",
+                    "right": "2",
+                    "operation": "divide",
+                    "error": "ZeroDivisionError: division by zero",
+                }
+            },
+        )
+
+        self.assertIn("User request:\nfix this", prompt)
+        self.assertIn('Calculator operation "divide" failed for left=84, right=2.', prompt)
+        self.assertIn("ZeroDivisionError: division by zero", prompt)
 
     @patch("factory.worker.write_factory_marker")
     @patch("factory.worker.count_workspace_files", side_effect=[44, 45])
@@ -271,6 +320,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             {
                 "JOB_ID": "test-job-1",
                 "TASK_TEXT": "clone repo test",
+                "TASK_CONTEXT": json.dumps({"calculator": {"operation": "divide", "error": "boom"}}),
                 "FACTORY_REPO_URL": "https://github.com/abhiverma31/software-factory-prototype.git",
                 "FACTORY_WORKSPACE_DIR": "/tmp/test-workspace",
             },
@@ -285,12 +335,15 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         )
         self.assertEqual(count_workspace_files.call_count, 2)
         count_workspace_files.assert_any_call(Path("/tmp/test-workspace"))
-        write_factory_marker.assert_called_once_with(Path("/tmp/test-workspace"), "test-job-1", "clone repo test")
+        marker_args = write_factory_marker.call_args.args
+        self.assertEqual(marker_args[:3], (Path("/tmp/test-workspace"), "test-job-1", "clone repo test"))
+        self.assertIn("boom", marker_args[3])
         self.assertEqual(status["state"], "completed")
         self.assertEqual(status["task"], "clone repo test")
         self.assertEqual(
             status["detail"],
-            "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt.",
+            "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt. "
+            "Prepared Codex prompt with request context.",
         )
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):

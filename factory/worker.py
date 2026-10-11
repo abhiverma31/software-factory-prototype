@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -38,9 +39,51 @@ def count_workspace_files(workspace):
     return sum(1 for path in workspace.rglob("*") if path.is_file() and ".git" not in path.parts)
 
 
-def write_factory_marker(workspace, job_id, task):
+def load_task_context():
+    raw_context = os.environ.get("TASK_CONTEXT", "").strip()
+    if not raw_context:
+        return {}
+    try:
+        return json.loads(raw_context)
+    except json.JSONDecodeError:
+        return {"raw": raw_context}
+
+
+def format_calculator_context(context):
+    calculator = context.get("calculator") if isinstance(context, dict) else None
+    if not isinstance(calculator, dict):
+        return "No calculator context was provided."
+
+    operation = calculator.get("operation") or "unknown"
+    left = calculator.get("left") or ""
+    right = calculator.get("right") or ""
+    error = calculator.get("error")
+    result = calculator.get("result")
+
+    if error:
+        return f'Calculator operation "{operation}" failed for left={left}, right={right}. Error: {error}.'
+    return f'Calculator operation "{operation}" ran for left={left}, right={right}. Result: {result}.'
+
+
+def build_codex_prompt(task, context):
+    return "\n".join(
+        [
+            "User request:",
+            task,
+            "",
+            "Observed application context:",
+            format_calculator_context(context),
+            "",
+            "Repository task:",
+            "Inspect the Django calculator code, fix the issue minimally, and preserve existing behavior.",
+            "After editing, run the relevant checks or tests.",
+        ]
+    )
+
+
+def write_factory_marker(workspace, job_id, task, prompt):
     marker = workspace / "factory_run.txt"
-    marker.write_text(f"Job ID: {job_id}\nTask: {task}\n", encoding="utf-8")
+    marker.write_text(f"Job ID: {job_id}\nTask: {task}\n\nPrepared Codex prompt:\n{prompt}\n", encoding="utf-8")
     return marker
 
 
@@ -54,6 +97,8 @@ def main():
         return 2
 
     workspace = Path(os.environ.get("FACTORY_WORKSPACE_DIR", "/tmp/software-factory-workspace"))
+    task_context = load_task_context()
+    codex_prompt = build_codex_prompt(task, task_context)
 
     complete_status(
         job_id,
@@ -80,7 +125,7 @@ def main():
         return 1
 
     before_count = count_workspace_files(workspace)
-    marker = write_factory_marker(workspace, job_id, task)
+    marker = write_factory_marker(workspace, job_id, task, codex_prompt)
     after_count = count_workspace_files(workspace)
     complete_status(
         job_id,
@@ -89,7 +134,8 @@ def main():
             "task": task,
             "detail": (
                 "Repository cloned successfully. "
-                f"File count changed from {before_count} to {after_count} after writing {marker.name}."
+                f"File count changed from {before_count} to {after_count} after writing {marker.name}. "
+                "Prepared Codex prompt with request context."
             ),
         },
     )

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 
@@ -28,7 +29,7 @@ def start_local_factory(task, status):
     return status
 
 
-def start_ecs_factory(task, status):
+def start_ecs_factory(task, status, context=None):
     missing = [
         name
         for name, value in {
@@ -59,6 +60,7 @@ def start_ecs_factory(task, status):
                     "environment": [
                         {"name": "JOB_ID", "value": status["job_id"]},
                         {"name": "TASK_TEXT", "value": task},
+                        {"name": "TASK_CONTEXT", "value": json.dumps(context or {})},
                     ],
                 }
             ]
@@ -70,8 +72,8 @@ def start_ecs_factory(task, status):
     return status
 
 
-def start_factory(task):
+def start_factory(task, context=None):
     status = start_status(task)
     if settings.FACTORY_RUNNER_BACKEND == "ecs":
-        return start_ecs_factory(task, status)
+        return start_ecs_factory(task, status, context)
     return start_local_factory(task, status)
