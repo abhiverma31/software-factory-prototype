@@ -328,7 +328,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
     @patch("factory.worker.ssm_client")
     def test_load_openai_api_key_reads_secure_parameter(self, ssm_client):
         client = Mock()
-        client.get_parameter.return_value = {"Parameter": {"Value": "sk-test"}}
+        client.get_parameter.return_value = {"Parameter": {"Value": " sk-test\n"}}
         ssm_client.return_value = client
 
         with patch.dict(os.environ, {"OPENAI_API_KEY_PARAMETER_NAME": "/software-factory/dev/openai-api-key"}):
@@ -366,6 +366,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(run.call_args.args[0][:4], ["/usr/local/bin/codex", "exec", "--skip-git-repo-check", "--approve-for-me"])
         self.assertEqual(call_kwargs["cwd"], Path("/tmp/workspace"))
         self.assertEqual(call_kwargs["env"]["OPENAI_API_KEY"], "sk-test")
+        self.assertEqual(call_kwargs["env"]["CODEX_API_KEY"], "sk-test")
 
     @patch("factory.worker.subprocess.run")
     def test_changed_files_returns_porcelain_paths(self, run):

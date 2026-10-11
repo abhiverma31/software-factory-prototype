@@ -52,7 +52,7 @@ def load_github_token():
 def load_openai_api_key():
     parameter_name = required_env("OPENAI_API_KEY_PARAMETER_NAME")
     response = ssm_client().get_parameter(Name=parameter_name, WithDecryption=True)
-    return response["Parameter"]["Value"]
+    return response["Parameter"]["Value"].strip()
 
 
 def authenticated_repo_url(repo_url, token):
@@ -136,7 +136,7 @@ def run_codex(workspace, prompt, openai_api_key):
     if not codex:
         raise RuntimeError("Codex CLI was not found in the worker image.")
 
-    env = {**os.environ, "OPENAI_API_KEY": openai_api_key}
+    env = {**os.environ, "OPENAI_API_KEY": openai_api_key, "CODEX_API_KEY": openai_api_key}
     result = subprocess.run(
         [
             codex,
@@ -313,6 +313,7 @@ def main():
                 "task": task,
                 "detail": f"Codex could not run: {exc}",
                 "branch_name": branch_name,
+                "openai_key_length": len(openai_api_key) if "openai_api_key" in locals() else 0,
                 "prompt_preview": prompt_preview(codex_prompt),
             },
         )
@@ -329,6 +330,7 @@ def main():
                 "detail": "Codex run failed.",
                 "branch_name": branch_name,
                 "codex_return_code": codex_result.returncode,
+                "openai_key_length": len(openai_api_key),
                 "codex_output": codex_output[-4000:],
                 "prompt_preview": prompt_preview(codex_prompt),
             },
