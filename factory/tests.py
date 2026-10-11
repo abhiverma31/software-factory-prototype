@@ -490,6 +490,8 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(request_body["text"]["format"]["schema"]["required"], ["title", "body"])
         self.assertIn("add an emoji on the page", request_body["input"][1]["content"])
         self.assertIn("calculator/templates/calculator/index.html", request_body["input"][1]["content"])
+        self.assertNotIn("$ python manage.py test", request_body["input"][1]["content"])
+        self.assertIn("Do not include raw command lines", request_body["input"][1]["content"])
 
     @patch("factory.worker.request.urlopen")
     def test_create_pull_request_posts_to_github_api(self, urlopen):

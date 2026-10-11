@@ -236,14 +236,14 @@ def pull_request_metadata_prompt(task, context, changed_files, validation_output
             changed_file_lines,
             "",
             "Validation result:",
-            "The repository checks passed.",
-            "",
-            "Validation output excerpt:",
-            validation_output[-1200:],
+            "- Django system check passed.",
+            "- Django test suite passed.",
             "",
             "Return a concise, specific PR title and a helpful markdown PR body.",
             "The title should describe the actual change, not repeat the vague user request.",
             "The body should include summary, validation, and user request sections.",
+            "In the validation section, use short human wording only.",
+            "Do not include raw command lines, executable paths, test counts, or copied terminal output.",
         ]
     )
 
