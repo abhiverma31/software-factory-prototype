@@ -161,6 +161,24 @@ resource "aws_iam_role_policy" "worker_status_s3" {
   policy = data.aws_iam_policy_document.worker_status_s3.json
 }
 
+data "aws_iam_policy_document" "worker_github_token_ssm" {
+  statement {
+    actions = [
+      "ssm:GetParameter",
+    ]
+
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.github_token_parameter_name}",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "worker_github_token_ssm" {
+  name   = "${local.name_prefix}-worker-github-token-ssm"
+  role   = aws_iam_role.worker_task.id
+  policy = data.aws_iam_policy_document.worker_github_token_ssm.json
+}
+
 resource "aws_ecs_task_definition" "worker" {
   family                   = "${local.name_prefix}-worker"
   requires_compatibilities = ["FARGATE"]
@@ -196,6 +214,10 @@ resource "aws_ecs_task_definition" "worker" {
         {
           name  = "FACTORY_WORKSPACE_DIR"
           value = "/tmp/software-factory-workspace"
+        },
+        {
+          name  = "GITHUB_TOKEN_PARAMETER_NAME"
+          value = local.github_token_parameter_name
         },
       ]
 

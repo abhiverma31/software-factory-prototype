@@ -311,6 +311,27 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(worker.factory_branch_name("9955717a-efdc-419c"), "factory/9955717a-efd")
         self.assertEqual(worker.factory_branch_name("job/id with spaces"), "factory/job-id-with-")
 
+    def test_authenticated_repo_url_injects_quoted_token(self):
+        self.assertEqual(
+            worker.authenticated_repo_url("https://github.com/example/repo.git", "token/with space"),
+            "https://x-access-token:token%2Fwith%20space@github.com/example/repo.git",
+        )
+
+    @patch("factory.worker.ssm_client")
+    def test_load_github_token_reads_secure_parameter(self, ssm_client):
+        client = Mock()
+        client.get_parameter.return_value = {"Parameter": {"Value": "ghp_test"}}
+        ssm_client.return_value = client
+
+        with patch.dict(os.environ, {"GITHUB_TOKEN_PARAMETER_NAME": "/software-factory/dev/github-token"}):
+            token = worker.load_github_token()
+
+        self.assertEqual(token, "ghp_test")
+        client.get_parameter.assert_called_once_with(
+            Name="/software-factory/dev/github-token",
+            WithDecryption=True,
+        )
+
     @patch("factory.worker.subprocess.run")
     def test_create_factory_commit_creates_branch_and_commits_marker(self, run):
         run.return_value.stdout = "abc123\n"
@@ -343,6 +364,38 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             text=True,
         )
 
+    @patch("factory.worker.load_github_token", return_value="ghp_test")
+    @patch("factory.worker.subprocess.run")
+    def test_push_factory_branch_sets_authenticated_remote_pushes_and_restores_remote(self, run, load_github_token):
+        worker.push_factory_branch(
+            Path("/tmp/workspace"),
+            "https://github.com/example/repo.git",
+            "factory/test-job-1",
+        )
+
+        run.assert_any_call(
+            [
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                "https://x-access-token:ghp_test@github.com/example/repo.git",
+            ],
+            cwd=Path("/tmp/workspace"),
+            check=True,
+        )
+        run.assert_any_call(
+            ["git", "push", "origin", "factory/test-job-1"],
+            cwd=Path("/tmp/workspace"),
+            check=True,
+        )
+        run.assert_any_call(
+            ["git", "remote", "set-url", "origin", "https://github.com/example/repo.git"],
+            cwd=Path("/tmp/workspace"),
+            check=True,
+        )
+
+    @patch("factory.worker.push_factory_branch")
     @patch("factory.worker.create_factory_commit", return_value="abc123")
     @patch("factory.worker.write_factory_marker")
     @patch("factory.worker.count_workspace_files", side_effect=[44, 45])
@@ -353,6 +406,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         count_workspace_files,
         write_factory_marker,
         create_factory_commit,
+        push_factory_branch,
     ):
         write_factory_marker.return_value = Path("/tmp/test-workspace/factory_run.txt")
         start_status("clone repo test", job_id="test-job-1")
@@ -385,15 +439,21 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             "factory/test-job-1",
             Path("/tmp/test-workspace/factory_run.txt"),
         )
+        push_factory_branch.assert_called_once_with(
+            Path("/tmp/test-workspace"),
+            "https://github.com/abhiverma31/software-factory-prototype.git",
+            "factory/test-job-1",
+        )
         self.assertEqual(status["state"], "completed")
         self.assertEqual(status["task"], "clone repo test")
         self.assertEqual(
             status["detail"],
             "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt. "
-            "Created a local factory branch and commit.",
+            "Created and pushed a factory branch.",
         )
         self.assertEqual(status["branch_name"], "factory/test-job-1")
         self.assertEqual(status["commit_sha"], "abc123")
+        self.assertIs(status["pushed_branch"], True)
         self.assertIn("boom", status["prompt_preview"])
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):

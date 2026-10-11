@@ -4,9 +4,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote, urlparse, urlunparse
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "software_factory.settings")
 
+import boto3
 import django
 from django.apps import apps
 
@@ -33,6 +35,23 @@ def clone_repository(repo_url, workspace):
         capture_output=True,
         text=True,
     )
+
+
+def ssm_client():
+    return boto3.client("ssm")
+
+
+def load_github_token():
+    parameter_name = required_env("GITHUB_TOKEN_PARAMETER_NAME")
+    response = ssm_client().get_parameter(Name=parameter_name, WithDecryption=True)
+    return response["Parameter"]["Value"]
+
+
+def authenticated_repo_url(repo_url, token):
+    parsed = urlparse(repo_url)
+    token_user = "x-access-token"
+    token_password = quote(token, safe="")
+    return urlunparse(parsed._replace(netloc=f"{token_user}:{token_password}@{parsed.netloc}"))
 
 
 def count_workspace_files(workspace):
@@ -120,6 +139,16 @@ def create_factory_commit(workspace, branch_name, marker):
     return result.stdout.strip()
 
 
+def push_factory_branch(workspace, repo_url, branch_name):
+    token = load_github_token()
+    push_url = authenticated_repo_url(repo_url, token)
+    subprocess.run(["git", "remote", "set-url", "origin", push_url], cwd=workspace, check=True)
+    try:
+        subprocess.run(["git", "push", "origin", branch_name], cwd=workspace, check=True)
+    finally:
+        subprocess.run(["git", "remote", "set-url", "origin", repo_url], cwd=workspace, check=True)
+
+
 def main():
     try:
         job_id = required_env("JOB_ID")
@@ -178,6 +207,23 @@ def main():
         print(f"[worker] commit failed job_id={job_id}: {detail}", flush=True)
         return 1
 
+    try:
+        push_factory_branch(workspace, repo_url, branch_name)
+    except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": "Factory commit was created locally, but pushing the branch to GitHub failed.",
+                "branch_name": branch_name,
+                "commit_sha": commit_sha,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] push failed job_id={job_id}: {exc.__class__.__name__}", flush=True)
+        return 1
+
     complete_status(
         job_id,
         {
@@ -186,10 +232,11 @@ def main():
             "detail": (
                 "Repository cloned successfully. "
                 f"File count changed from {before_count} to {after_count} after writing {marker.name}. "
-                "Created a local factory branch and commit."
+                "Created and pushed a factory branch."
             ),
             "branch_name": branch_name,
             "commit_sha": commit_sha,
+            "pushed_branch": True,
             "prompt_preview": prompt_preview(codex_prompt),
         },
     )
