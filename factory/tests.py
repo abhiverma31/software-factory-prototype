@@ -449,6 +449,49 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         )
 
     @patch("factory.worker.request.urlopen")
+    def test_generate_pull_request_metadata_uses_structured_openai_response(self, urlopen):
+        response = Mock()
+        response.read.return_value = json.dumps(
+            {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "title": "Add math emoji to calculator UI",
+                                        "body": "## Summary\n- Added a math emoji.\n\n## Validation\n- Tests passed.",
+                                    }
+                                ),
+                            }
+                        ]
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        urlopen.return_value.__enter__.return_value = response
+
+        metadata = worker.generate_pull_request_metadata(
+            "add an emoji on the page",
+            {"calculator": {"operation": "add", "result": "14"}},
+            ["calculator/templates/calculator/index.html"],
+            "$ python manage.py test\nOK",
+            "sk-test",
+        )
+
+        self.assertEqual(metadata["title"], "Add math emoji to calculator UI")
+        self.assertIn("Added a math emoji", metadata["body"])
+        metadata_request = urlopen.call_args.args[0]
+        self.assertEqual(metadata_request.full_url, "https://api.openai.com/v1/responses")
+        self.assertEqual(metadata_request.headers["Authorization"], "Bearer sk-test")
+        request_body = json.loads(metadata_request.data.decode("utf-8"))
+        self.assertEqual(request_body["text"]["format"]["type"], "json_schema")
+        self.assertEqual(request_body["text"]["format"]["schema"]["required"], ["title", "body"])
+        self.assertIn("add an emoji on the page", request_body["input"][1]["content"])
+        self.assertIn("calculator/templates/calculator/index.html", request_body["input"][1]["content"])
+
+    @patch("factory.worker.request.urlopen")
     def test_create_pull_request_posts_to_github_api(self, urlopen):
         response = Mock()
         response.read.return_value = json.dumps(
@@ -459,8 +502,11 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         pull_request = worker.create_pull_request(
             "https://github.com/example/repo.git",
             "factory/test-job-1",
-            "fix the division bug",
             "ghp_test",
+            {
+                "title": "Add math emoji to calculator UI",
+                "body": "## Summary\n- Added a math emoji.\n\n## Validation\n- Tests passed.",
+            },
         )
 
         self.assertEqual(
@@ -471,12 +517,23 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(pr_request.full_url, "https://api.github.com/repos/example/repo/pulls")
         self.assertEqual(pr_request.get_method(), "POST")
         self.assertEqual(pr_request.headers["Authorization"], "Bearer ghp_test")
-        self.assertEqual(json.loads(pr_request.data.decode("utf-8"))["head"], "factory/test-job-1")
-        self.assertEqual(json.loads(pr_request.data.decode("utf-8"))["base"], "main")
+        request_body = json.loads(pr_request.data.decode("utf-8"))
+        self.assertEqual(request_body["title"], "Add math emoji to calculator UI")
+        self.assertEqual(request_body["head"], "factory/test-job-1")
+        self.assertEqual(request_body["base"], "main")
+        self.assertIn("Added a math emoji", request_body["body"])
+        self.assertIn("Tests passed", request_body["body"])
 
     @patch(
         "factory.worker.create_pull_request",
         return_value={"url": "https://github.com/example/repo/pull/1", "number": 1},
+    )
+    @patch(
+        "factory.worker.generate_pull_request_metadata",
+        return_value={
+            "title": "Fix calculator behavior",
+            "body": "## Summary\n- Fixed calculator behavior.\n\n## Validation\n- Tests passed.",
+        },
     )
     @patch("factory.worker.load_github_token", return_value="ghp_test")
     @patch("factory.worker.push_factory_branch")
@@ -498,6 +555,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         commit_factory_changes,
         push_factory_branch,
         load_github_token,
+        generate_pull_request_metadata,
         create_pull_request,
     ):
         run_codex.return_value.returncode = 0
@@ -535,6 +593,13 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             "factory/test-job-1",
             "clone repo test",
         )
+        generate_pull_request_metadata.assert_called_once_with(
+            "clone repo test",
+            {"calculator": {"operation": "divide", "error": "boom"}},
+            ["calculator/services.py"],
+            "validation ok",
+            "sk-test",
+        )
         push_factory_branch.assert_called_once_with(
             Path("/tmp/test-workspace"),
             "https://github.com/abhiverma31/software-factory-prototype.git",
@@ -544,8 +609,11 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         create_pull_request.assert_called_once_with(
             "https://github.com/abhiverma31/software-factory-prototype.git",
             "factory/test-job-1",
-            "clone repo test",
             "ghp_test",
+            {
+                "title": "Fix calculator behavior",
+                "body": "## Summary\n- Fixed calculator behavior.\n\n## Validation\n- Tests passed.",
+            },
         )
         self.assertEqual(status["state"], "completed")
         self.assertEqual(status["task"], "clone repo test")
@@ -559,6 +627,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertIs(status["pushed_branch"], True)
         self.assertEqual(status["pull_request_url"], "https://github.com/example/repo/pull/1")
         self.assertEqual(status["pull_request_number"], 1)
+        self.assertEqual(status["pull_request_title"], "Fix calculator behavior")
         self.assertIn("boom", status["prompt_preview"])
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):

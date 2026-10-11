@@ -220,17 +220,113 @@ def parse_github_repo(repo_url):
     return parts[0], parts[1]
 
 
-def create_pull_request(repo_url, branch_name, task, token):
+def pull_request_metadata_prompt(task, context, changed_files, validation_output):
+    changed_file_lines = "\n".join(f"- {path}" for path in changed_files) or "- None reported"
+    return "\n".join(
+        [
+            "Create GitHub pull request metadata for a software factory run.",
+            "",
+            "User request:",
+            task,
+            "",
+            "Observed application context:",
+            format_calculator_context(context),
+            "",
+            "Changed files:",
+            changed_file_lines,
+            "",
+            "Validation result:",
+            "The repository checks passed.",
+            "",
+            "Validation output excerpt:",
+            validation_output[-1200:],
+            "",
+            "Return a concise, specific PR title and a helpful markdown PR body.",
+            "The title should describe the actual change, not repeat the vague user request.",
+            "The body should include summary, validation, and user request sections.",
+        ]
+    )
+
+
+def extract_response_text(payload):
+    if payload.get("output_text"):
+        return payload["output_text"]
+
+    for item in payload.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") in {"output_text", "text"} and content.get("text"):
+                return content["text"]
+
+    raise KeyError("No text output found in OpenAI response.")
+
+
+def generate_pull_request_metadata(task, context, changed_files, validation_output, openai_api_key):
+    prompt = pull_request_metadata_prompt(task, context, changed_files, validation_output)
+    body = json.dumps(
+        {
+            "model": os.environ.get("PR_METADATA_MODEL", "gpt-4o-mini"),
+            "input": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You write accurate GitHub pull request metadata for an autonomous coding worker. "
+                        "Use only the supplied request, context, changed files, and validation result."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "factory_pr_metadata",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "A concise GitHub PR title under 80 characters.",
+                            },
+                            "body": {
+                                "type": "string",
+                                "description": "A markdown GitHub PR body with summary and validation details.",
+                            },
+                        },
+                        "required": ["title", "body"],
+                    },
+                }
+            },
+        }
+    ).encode("utf-8")
+    metadata_request = request.Request(
+        "https://api.openai.com/v1/responses",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {openai_api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    with request.urlopen(metadata_request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    metadata = json.loads(extract_response_text(payload))
+    title = metadata["title"].strip()
+    pr_body = metadata["body"].strip()
+    if not title or not pr_body:
+        raise ValueError("OpenAI returned empty pull request metadata.")
+    return {"title": title[:120], "body": pr_body}
+
+
+def create_pull_request(repo_url, branch_name, token, metadata):
     owner, repo = parse_github_repo(repo_url)
     body = json.dumps(
         {
-            "title": f"Factory fix: {task[:80]}",
+            "title": metadata["title"],
             "head": branch_name,
             "base": "main",
-            "body": (
-                "Created by the software factory prototype.\n\n"
-                f"User request:\n{task}\n"
-            ),
+            "body": metadata["body"],
         }
     ).encode("utf-8")
     pr_request = request.Request(
@@ -411,6 +507,30 @@ def main():
         return 1
 
     try:
+        pull_request_metadata = generate_pull_request_metadata(
+            task,
+            task_context,
+            files_changed,
+            validation_output,
+            openai_api_key,
+        )
+    except (ValueError, KeyError, HTTPError, URLError, json.JSONDecodeError) as exc:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": "Factory commit was created locally, but PR metadata generation failed.",
+                "branch_name": branch_name,
+                "commit_sha": commit_sha,
+                "changed_files": files_changed,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] PR metadata failed job_id={job_id}: {exc.__class__.__name__}", flush=True)
+        return 1
+
+    try:
         github_token = load_github_token()
         push_factory_branch(workspace, repo_url, branch_name, github_token)
     except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
@@ -429,7 +549,7 @@ def main():
         return 1
 
     try:
-        pull_request = create_pull_request(repo_url, branch_name, task, github_token)
+        pull_request = create_pull_request(repo_url, branch_name, github_token, pull_request_metadata)
     except (ValueError, KeyError, HTTPError, URLError) as exc:
         complete_status(
             job_id,
@@ -461,6 +581,7 @@ def main():
             "pushed_branch": True,
             "pull_request_url": pull_request["url"],
             "pull_request_number": pull_request["number"],
+            "pull_request_title": pull_request_metadata["title"],
             "prompt_preview": prompt_preview(codex_prompt),
         },
     )
