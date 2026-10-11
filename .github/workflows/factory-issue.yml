@@ -71,4 +71,64 @@ jobs:
             --request POST \
             --header "Content-Type: application/json" \
             --data @factory-request.json \
-            "${FACTORY_LAMBDA_URL%/}/factory/fix/"
+            "${FACTORY_LAMBDA_URL%/}/factory/fix/" \
+            --output factory-start-response.json
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          response = json.loads(Path("factory-start-response.json").read_text(encoding="utf-8"))
+          job_id = response["job_id"]
+          state = response["state"]
+          print(f"Factory started with job_id={job_id}, state={state}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"FACTORY_JOB_ID={job_id}\n")
+          PY
+
+      - name: Wait for software factory
+        env:
+          FACTORY_LAMBDA_URL: ${{ secrets.FACTORY_LAMBDA_URL }}
+          FACTORY_TIMEOUT_SECONDS: "900"
+          FACTORY_POLL_SECONDS: "10"
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.parse
+          import urllib.request
+
+          base_url = os.environ["FACTORY_LAMBDA_URL"].rstrip("/")
+          job_id = os.environ["FACTORY_JOB_ID"]
+          timeout_seconds = int(os.environ["FACTORY_TIMEOUT_SECONDS"])
+          poll_seconds = int(os.environ["FACTORY_POLL_SECONDS"])
+          deadline = time.monotonic() + timeout_seconds
+
+          while time.monotonic() < deadline:
+              query = urllib.parse.urlencode({"job_id": job_id})
+              with urllib.request.urlopen(f"{base_url}/factory/status/?{query}", timeout=20) as response:
+                  status = json.loads(response.read().decode("utf-8"))
+
+              state = status.get("state", "unknown")
+              detail = status.get("detail", "")
+              print(f"Factory status: {state}. {detail}")
+
+              if state == "completed":
+                  pull_request_url = status.get("pull_request_url")
+                  if pull_request_url:
+                      print(f"Pull request: {pull_request_url}")
+                  sys.exit(0)
+
+              if state == "failed":
+                  print(json.dumps(status, indent=2))
+                  sys.exit(1)
+
+              time.sleep(poll_seconds)
+
+          print(f"Timed out waiting for factory job {job_id}.")
+          sys.exit(1)
+          PY
