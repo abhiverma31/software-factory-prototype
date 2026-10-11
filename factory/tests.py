@@ -386,6 +386,11 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertIn("manage.py check", output)
         self.assertIn("manage.py test", output)
         self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            call_env = call.kwargs["env"]
+            self.assertEqual(call_env["FACTORY_STATUS_BACKEND"], "file")
+            self.assertEqual(call_env["FACTORY_STATUS_FILE"], "/tmp/software-factory-validation-status.json")
+            self.assertEqual(call_env["SOFTWARE_FACTORY_SKIP_RESET"], "1")
 
     @patch("factory.worker.subprocess.run")
     def test_commit_factory_changes_commits_all_changes_and_returns_sha(self, run):

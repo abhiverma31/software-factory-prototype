@@ -171,9 +171,15 @@ def run_validation(workspace):
         [sys.executable, "manage.py", "check"],
         [sys.executable, "manage.py", "test"],
     ]
+    env = {
+        **os.environ,
+        "FACTORY_STATUS_BACKEND": "file",
+        "FACTORY_STATUS_FILE": "/tmp/software-factory-validation-status.json",
+        "SOFTWARE_FACTORY_SKIP_RESET": "1",
+    }
     output = []
     for command in checks:
-        result = subprocess.run(command, cwd=workspace, check=False, capture_output=True, text=True)
+        result = subprocess.run(command, cwd=workspace, check=False, capture_output=True, text=True, env=env)
         output.append(f"$ {' '.join(command)}\n{result.stdout}{result.stderr}")
         if result.returncode != 0:
             return result.returncode, "\n".join(output)
