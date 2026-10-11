@@ -303,6 +303,10 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertIn('Calculator operation "divide" failed for left=84, right=2.', prompt)
         self.assertIn("ZeroDivisionError: division by zero", prompt)
 
+    def test_prompt_preview_truncates_long_prompt(self):
+        self.assertEqual(worker.prompt_preview("short", limit=10), "short")
+        self.assertEqual(worker.prompt_preview("12345678901", limit=10), "1234567890...")
+
     @patch("factory.worker.write_factory_marker")
     @patch("factory.worker.count_workspace_files", side_effect=[44, 45])
     @patch("factory.worker.clone_repository")
@@ -345,6 +349,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt. "
             "Prepared Codex prompt with request context.",
         )
+        self.assertIn("boom", status["prompt_preview"])
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):
         with patch.dict(os.environ, {}, clear=True):

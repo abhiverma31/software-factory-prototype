@@ -81,6 +81,12 @@ def build_codex_prompt(task, context):
     )
 
 
+def prompt_preview(prompt, limit=1000):
+    if len(prompt) <= limit:
+        return prompt
+    return f"{prompt[:limit]}..."
+
+
 def write_factory_marker(workspace, job_id, task, prompt):
     marker = workspace / "factory_run.txt"
     marker.write_text(f"Job ID: {job_id}\nTask: {task}\n\nPrepared Codex prompt:\n{prompt}\n", encoding="utf-8")
@@ -137,6 +143,7 @@ def main():
                 f"File count changed from {before_count} to {after_count} after writing {marker.name}. "
                 "Prepared Codex prompt with request context."
             ),
+            "prompt_preview": prompt_preview(codex_prompt),
         },
     )
     print(
