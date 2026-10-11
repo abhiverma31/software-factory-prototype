@@ -273,19 +273,6 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
 
         self.assertEqual(worker.count_workspace_files(workspace), 1)
 
-    def test_write_factory_marker_adds_workspace_file(self):
-        workspace = Path(self.status_dir.name) / "workspace"
-        workspace.mkdir()
-
-        prompt = "User request:\nclone"
-        marker = worker.write_factory_marker(workspace, "job-1", "clone", prompt)
-
-        self.assertEqual(marker.name, "factory_run.txt")
-        marker_text = marker.read_text(encoding="utf-8")
-        self.assertIn("Job ID: job-1", marker_text)
-        self.assertIn("Task: clone", marker_text)
-        self.assertIn(prompt, marker_text)
-
     def test_build_codex_prompt_includes_calculator_error_context(self):
         prompt = worker.build_codex_prompt(
             "fix this",
@@ -338,17 +325,25 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             WithDecryption=True,
         )
 
-    @patch("factory.worker.subprocess.run")
-    def test_create_factory_commit_creates_branch_and_commits_marker(self, run):
-        run.return_value.stdout = "abc123\n"
+    @patch("factory.worker.ssm_client")
+    def test_load_openai_api_key_reads_secure_parameter(self, ssm_client):
+        client = Mock()
+        client.get_parameter.return_value = {"Parameter": {"Value": "sk-test"}}
+        ssm_client.return_value = client
 
-        commit_sha = worker.create_factory_commit(
-            Path("/tmp/workspace"),
-            "factory/test-job-1",
-            Path("/tmp/workspace/factory_run.txt"),
+        with patch.dict(os.environ, {"OPENAI_API_KEY_PARAMETER_NAME": "/software-factory/dev/openai-api-key"}):
+            token = worker.load_openai_api_key()
+
+        self.assertEqual(token, "sk-test")
+        client.get_parameter.assert_called_once_with(
+            Name="/software-factory/dev/openai-api-key",
+            WithDecryption=True,
         )
 
-        self.assertEqual(commit_sha, "abc123")
+    @patch("factory.worker.subprocess.run")
+    def test_create_factory_branch_configures_author_and_creates_branch(self, run):
+        worker.create_factory_branch(Path("/tmp/workspace"), "factory/test-job-1")
+
         run.assert_any_call(["git", "config", "user.name", "Software Factory"], cwd=Path("/tmp/workspace"), check=True)
         run.assert_any_call(
             ["git", "config", "user.email", "software-factory@example.local"],
@@ -356,9 +351,55 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             check=True,
         )
         run.assert_any_call(["git", "checkout", "-b", "factory/test-job-1"], cwd=Path("/tmp/workspace"), check=True)
-        run.assert_any_call(["git", "add", "factory_run.txt"], cwd=Path("/tmp/workspace"), check=True)
+
+    @patch("factory.worker.shutil.which", return_value="/usr/local/bin/codex")
+    @patch("factory.worker.subprocess.run")
+    def test_run_codex_invokes_codex_exec_with_api_key(self, run, which):
+        run.return_value.returncode = 0
+        run.return_value.stdout = "done"
+        run.return_value.stderr = ""
+
+        result = worker.run_codex(Path("/tmp/workspace"), "fix this", "sk-test")
+
+        self.assertEqual(result.returncode, 0)
+        call_kwargs = run.call_args.kwargs
+        self.assertEqual(run.call_args.args[0][:4], ["/usr/local/bin/codex", "exec", "--skip-git-repo-check", "--approve-for-me"])
+        self.assertEqual(call_kwargs["cwd"], Path("/tmp/workspace"))
+        self.assertEqual(call_kwargs["env"]["OPENAI_API_KEY"], "sk-test")
+
+    @patch("factory.worker.subprocess.run")
+    def test_changed_files_returns_porcelain_paths(self, run):
+        run.return_value.stdout = " M calculator/services.py\n?? new_file.py\n"
+
+        self.assertEqual(worker.changed_files(Path("/tmp/workspace")), ["calculator/services.py", "new_file.py"])
+
+    @patch("factory.worker.subprocess.run")
+    def test_run_validation_runs_django_check_and_tests(self, run):
+        run.return_value.returncode = 0
+        run.return_value.stdout = "ok"
+        run.return_value.stderr = ""
+
+        return_code, output = worker.run_validation(Path("/tmp/workspace"))
+
+        self.assertEqual(return_code, 0)
+        self.assertIn("manage.py check", output)
+        self.assertIn("manage.py test", output)
+        self.assertEqual(run.call_count, 2)
+
+    @patch("factory.worker.subprocess.run")
+    def test_commit_factory_changes_commits_all_changes_and_returns_sha(self, run):
+        run.return_value.stdout = "abc123\n"
+
+        commit_sha = worker.commit_factory_changes(
+            Path("/tmp/workspace"),
+            "factory/test-job-1",
+            "fix division bug",
+        )
+
+        self.assertEqual(commit_sha, "abc123")
+        run.assert_any_call(["git", "add", "."], cwd=Path("/tmp/workspace"), check=True)
         run.assert_any_call(
-            ["git", "commit", "-m", "Factory proof for factory/test-job-1"],
+            ["git", "commit", "-m", "Factory fix: fix division bug"],
             cwd=Path("/tmp/workspace"),
             check=True,
         )
@@ -433,21 +474,29 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
     )
     @patch("factory.worker.load_github_token", return_value="ghp_test")
     @patch("factory.worker.push_factory_branch")
-    @patch("factory.worker.create_factory_commit", return_value="abc123")
-    @patch("factory.worker.write_factory_marker")
-    @patch("factory.worker.count_workspace_files", side_effect=[44, 45])
+    @patch("factory.worker.commit_factory_changes", return_value="abc123")
+    @patch("factory.worker.run_validation", return_value=(0, "validation ok"))
+    @patch("factory.worker.changed_files", return_value=["calculator/services.py"])
+    @patch("factory.worker.run_codex")
+    @patch("factory.worker.load_openai_api_key", return_value="sk-test")
+    @patch("factory.worker.create_factory_branch")
     @patch("factory.worker.clone_repository")
-    def test_worker_clones_repo_writes_marker_and_completes_job(
+    def test_worker_runs_codex_validates_commits_pushes_and_creates_pr(
         self,
         clone_repository,
-        count_workspace_files,
-        write_factory_marker,
-        create_factory_commit,
+        create_factory_branch,
+        load_openai_api_key,
+        run_codex,
+        changed_files,
+        run_validation,
+        commit_factory_changes,
         push_factory_branch,
         load_github_token,
         create_pull_request,
     ):
-        write_factory_marker.return_value = Path("/tmp/test-workspace/factory_run.txt")
+        run_codex.return_value.returncode = 0
+        run_codex.return_value.stdout = "codex ok"
+        run_codex.return_value.stderr = ""
         start_status("clone repo test", job_id="test-job-1")
 
         with patch.dict(
@@ -468,15 +517,17 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             "https://github.com/abhiverma31/software-factory-prototype.git",
             Path("/tmp/test-workspace"),
         )
-        self.assertEqual(count_workspace_files.call_count, 2)
-        count_workspace_files.assert_any_call(Path("/tmp/test-workspace"))
-        marker_args = write_factory_marker.call_args.args
-        self.assertEqual(marker_args[:3], (Path("/tmp/test-workspace"), "test-job-1", "clone repo test"))
-        self.assertIn("boom", marker_args[3])
-        create_factory_commit.assert_called_once_with(
+        create_factory_branch.assert_called_once_with(Path("/tmp/test-workspace"), "factory/test-job-1")
+        run_codex.assert_called_once()
+        self.assertEqual(run_codex.call_args.args[0], Path("/tmp/test-workspace"))
+        self.assertIn("boom", run_codex.call_args.args[1])
+        self.assertEqual(run_codex.call_args.args[2], "sk-test")
+        changed_files.assert_called_once_with(Path("/tmp/test-workspace"))
+        run_validation.assert_called_once_with(Path("/tmp/test-workspace"))
+        commit_factory_changes.assert_called_once_with(
             Path("/tmp/test-workspace"),
             "factory/test-job-1",
-            Path("/tmp/test-workspace/factory_run.txt"),
+            "clone repo test",
         )
         push_factory_branch.assert_called_once_with(
             Path("/tmp/test-workspace"),
@@ -494,11 +545,11 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(status["task"], "clone repo test")
         self.assertEqual(
             status["detail"],
-            "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt. "
-            "Created a factory pull request.",
+            "Repository cloned successfully. Codex changed 1 file(s), validation passed, and a factory pull request was created.",
         )
         self.assertEqual(status["branch_name"], "factory/test-job-1")
         self.assertEqual(status["commit_sha"], "abc123")
+        self.assertEqual(status["changed_files"], ["calculator/services.py"])
         self.assertIs(status["pushed_branch"], True)
         self.assertEqual(status["pull_request_url"], "https://github.com/example/repo/pull/1")
         self.assertEqual(status["pull_request_number"], 1)

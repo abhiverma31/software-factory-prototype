@@ -49,6 +49,12 @@ def load_github_token():
     return response["Parameter"]["Value"]
 
 
+def load_openai_api_key():
+    parameter_name = required_env("OPENAI_API_KEY_PARAMETER_NAME")
+    response = ssm_client().get_parameter(Name=parameter_name, WithDecryption=True)
+    return response["Parameter"]["Value"]
+
+
 def authenticated_repo_url(repo_url, token):
     parsed = urlparse(repo_url)
     token_user = "x-access-token"
@@ -113,12 +119,6 @@ def factory_branch_name(job_id):
     return f"factory/{safe_job_id[:12]}"
 
 
-def write_factory_marker(workspace, job_id, task, prompt):
-    marker = workspace / "factory_run.txt"
-    marker.write_text(f"Job ID: {job_id}\nTask: {task}\n\nPrepared Codex prompt:\n{prompt}\n", encoding="utf-8")
-    return marker
-
-
 def configure_git_author(workspace):
     author_name = os.environ.get("FACTORY_GIT_AUTHOR_NAME", "Software Factory")
     author_email = os.environ.get("FACTORY_GIT_AUTHOR_EMAIL", "software-factory@example.local")
@@ -126,11 +126,63 @@ def configure_git_author(workspace):
     subprocess.run(["git", "config", "user.email", author_email], cwd=workspace, check=True)
 
 
-def create_factory_commit(workspace, branch_name, marker):
+def create_factory_branch(workspace, branch_name):
     configure_git_author(workspace)
     subprocess.run(["git", "checkout", "-b", branch_name], cwd=workspace, check=True)
-    subprocess.run(["git", "add", marker.name], cwd=workspace, check=True)
-    subprocess.run(["git", "commit", "-m", f"Factory proof for {branch_name}"], cwd=workspace, check=True)
+
+
+def run_codex(workspace, prompt, openai_api_key):
+    codex = shutil.which("codex")
+    if not codex:
+        raise RuntimeError("Codex CLI was not found in the worker image.")
+
+    env = {**os.environ, "OPENAI_API_KEY": openai_api_key}
+    result = subprocess.run(
+        [
+            codex,
+            "exec",
+            "--skip-git-repo-check",
+            "--approve-for-me",
+            prompt,
+        ],
+        cwd=workspace,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=int(os.environ.get("CODEX_TIMEOUT_SECONDS", "300")),
+        env=env,
+    )
+    return result
+
+
+def changed_files(workspace):
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [line[3:] for line in result.stdout.splitlines() if line.strip()]
+
+
+def run_validation(workspace):
+    checks = [
+        [sys.executable, "manage.py", "check"],
+        [sys.executable, "manage.py", "test"],
+    ]
+    output = []
+    for command in checks:
+        result = subprocess.run(command, cwd=workspace, check=False, capture_output=True, text=True)
+        output.append(f"$ {' '.join(command)}\n{result.stdout}{result.stderr}")
+        if result.returncode != 0:
+            return result.returncode, "\n".join(output)
+    return 0, "\n".join(output)
+
+
+def commit_factory_changes(workspace, branch_name, task):
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "-m", f"Factory fix: {task[:80]}"], cwd=workspace, check=True)
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=workspace,
@@ -232,13 +284,10 @@ def main():
         print(f"[worker] clone failed job_id={job_id}: {detail}", flush=True)
         return 1
 
-    before_count = count_workspace_files(workspace)
-    marker = write_factory_marker(workspace, job_id, task, codex_prompt)
-    after_count = count_workspace_files(workspace)
     branch_name = factory_branch_name(job_id)
 
     try:
-        commit_sha = create_factory_commit(workspace, branch_name, marker)
+        create_factory_branch(workspace, branch_name)
     except subprocess.CalledProcessError as exc:
         detail = exc.stderr.strip() if exc.stderr else "Factory commit failed."
         complete_status(
@@ -247,6 +296,106 @@ def main():
                 "state": "failed",
                 "task": task,
                 "detail": detail,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] branch creation failed job_id={job_id}: {detail}", flush=True)
+        return 1
+
+    try:
+        openai_api_key = load_openai_api_key()
+        codex_result = run_codex(workspace, codex_prompt, openai_api_key)
+    except (ValueError, KeyError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": f"Codex could not run: {exc}",
+                "branch_name": branch_name,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] Codex failed to start job_id={job_id}: {exc.__class__.__name__}", flush=True)
+        return 1
+
+    codex_output = f"{codex_result.stdout}{codex_result.stderr}"
+    if codex_result.returncode != 0:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": "Codex run failed.",
+                "branch_name": branch_name,
+                "codex_return_code": codex_result.returncode,
+                "codex_output": codex_output[-4000:],
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] Codex failed job_id={job_id} return_code={codex_result.returncode}", flush=True)
+        return 1
+
+    try:
+        files_changed = changed_files(workspace)
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() if exc.stderr else "Could not inspect Codex changes."
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": detail,
+                "branch_name": branch_name,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] git status failed job_id={job_id}: {detail}", flush=True)
+        return 1
+
+    if not files_changed:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": "Codex completed but did not modify any files.",
+                "branch_name": branch_name,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] Codex made no changes job_id={job_id}", flush=True)
+        return 1
+
+    validation_return_code, validation_output = run_validation(workspace)
+    if validation_return_code != 0:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": "Validation failed after Codex changes.",
+                "branch_name": branch_name,
+                "changed_files": files_changed,
+                "validation_output": validation_output[-4000:],
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] validation failed job_id={job_id}", flush=True)
+        return 1
+
+    try:
+        commit_sha = commit_factory_changes(workspace, branch_name, task)
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() if exc.stderr else "Factory commit failed."
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": detail,
+                "branch_name": branch_name,
+                "changed_files": files_changed,
                 "prompt_preview": prompt_preview(codex_prompt),
             },
         )
@@ -296,11 +445,11 @@ def main():
             "task": task,
             "detail": (
                 "Repository cloned successfully. "
-                f"File count changed from {before_count} to {after_count} after writing {marker.name}. "
-                "Created a factory pull request."
+                f"Codex changed {len(files_changed)} file(s), validation passed, and a factory pull request was created."
             ),
             "branch_name": branch_name,
             "commit_sha": commit_sha,
+            "changed_files": files_changed,
             "pushed_branch": True,
             "pull_request_url": pull_request["url"],
             "pull_request_number": pull_request["number"],
@@ -310,7 +459,7 @@ def main():
     print(
         (
             f"[worker] committed repository job_id={job_id} branch={branch_name} "
-            f"commit={commit_sha} files_before={before_count} files_after={after_count}"
+            f"commit={commit_sha} changed_files={len(files_changed)}"
         ),
         flush=True,
     )

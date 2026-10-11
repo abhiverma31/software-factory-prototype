@@ -179,6 +179,24 @@ resource "aws_iam_role_policy" "worker_github_token_ssm" {
   policy = data.aws_iam_policy_document.worker_github_token_ssm.json
 }
 
+data "aws_iam_policy_document" "worker_openai_api_key_ssm" {
+  statement {
+    actions = [
+      "ssm:GetParameter",
+    ]
+
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.openai_api_key_parameter_name}",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "worker_openai_api_key_ssm" {
+  name   = "${local.name_prefix}-worker-openai-api-key-ssm"
+  role   = aws_iam_role.worker_task.id
+  policy = data.aws_iam_policy_document.worker_openai_api_key_ssm.json
+}
+
 resource "aws_ecs_task_definition" "worker" {
   family                   = "${local.name_prefix}-worker"
   requires_compatibilities = ["FARGATE"]
@@ -218,6 +236,10 @@ resource "aws_ecs_task_definition" "worker" {
         {
           name  = "GITHUB_TOKEN_PARAMETER_NAME"
           value = local.github_token_parameter_name
+        },
+        {
+          name  = "OPENAI_API_KEY_PARAMETER_NAME"
+          value = local.openai_api_key_parameter_name
         },
       ]
 
