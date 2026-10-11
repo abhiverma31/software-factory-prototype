@@ -189,7 +189,10 @@ def create_pull_request(repo_url, branch_name, task, token):
     )
     with request.urlopen(pr_request, timeout=20) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    return payload["html_url"]
+    return {
+        "url": payload["html_url"],
+        "number": payload["number"],
+    }
 
 
 def main():
@@ -269,7 +272,7 @@ def main():
         return 1
 
     try:
-        pull_request_url = create_pull_request(repo_url, branch_name, task, github_token)
+        pull_request = create_pull_request(repo_url, branch_name, task, github_token)
     except (ValueError, KeyError, HTTPError, URLError) as exc:
         complete_status(
             job_id,
@@ -299,7 +302,8 @@ def main():
             "branch_name": branch_name,
             "commit_sha": commit_sha,
             "pushed_branch": True,
-            "pull_request_url": pull_request_url,
+            "pull_request_url": pull_request["url"],
+            "pull_request_number": pull_request["number"],
             "prompt_preview": prompt_preview(codex_prompt),
         },
     )

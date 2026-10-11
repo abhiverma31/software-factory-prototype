@@ -404,17 +404,22 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
     @patch("factory.worker.request.urlopen")
     def test_create_pull_request_posts_to_github_api(self, urlopen):
         response = Mock()
-        response.read.return_value = json.dumps({"html_url": "https://github.com/example/repo/pull/1"}).encode("utf-8")
+        response.read.return_value = json.dumps(
+            {"html_url": "https://github.com/example/repo/pull/1", "number": 1}
+        ).encode("utf-8")
         urlopen.return_value.__enter__.return_value = response
 
-        pull_request_url = worker.create_pull_request(
+        pull_request = worker.create_pull_request(
             "https://github.com/example/repo.git",
             "factory/test-job-1",
             "fix the division bug",
             "ghp_test",
         )
 
-        self.assertEqual(pull_request_url, "https://github.com/example/repo/pull/1")
+        self.assertEqual(
+            pull_request,
+            {"url": "https://github.com/example/repo/pull/1", "number": 1},
+        )
         pr_request = urlopen.call_args.args[0]
         self.assertEqual(pr_request.full_url, "https://api.github.com/repos/example/repo/pulls")
         self.assertEqual(pr_request.get_method(), "POST")
@@ -422,7 +427,10 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(json.loads(pr_request.data.decode("utf-8"))["head"], "factory/test-job-1")
         self.assertEqual(json.loads(pr_request.data.decode("utf-8"))["base"], "main")
 
-    @patch("factory.worker.create_pull_request", return_value="https://github.com/example/repo/pull/1")
+    @patch(
+        "factory.worker.create_pull_request",
+        return_value={"url": "https://github.com/example/repo/pull/1", "number": 1},
+    )
     @patch("factory.worker.load_github_token", return_value="ghp_test")
     @patch("factory.worker.push_factory_branch")
     @patch("factory.worker.create_factory_commit", return_value="abc123")
@@ -493,6 +501,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(status["commit_sha"], "abc123")
         self.assertIs(status["pushed_branch"], True)
         self.assertEqual(status["pull_request_url"], "https://github.com/example/repo/pull/1")
+        self.assertEqual(status["pull_request_number"], 1)
         self.assertIn("boom", status["prompt_preview"])
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):
