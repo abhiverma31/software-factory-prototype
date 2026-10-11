@@ -11,8 +11,35 @@ class CalculatorServiceTests(TestCase):
         self.assertEqual(services.multiply(4, 3), 12)
         self.assertEqual(services.divide(8, 2), 4)
 
+    def test_reported_division(self):
+        self.assertEqual(services.divide(12, 2), 6)
+
+    def test_division_by_zero_raises(self):
+        with self.assertRaises(ZeroDivisionError):
+            services.divide(12, 0)
+
 
 class CalculatorViewTests(TestCase):
+    def test_division_api_returns_result(self):
+        response = self.client.post(
+            reverse("calculator-calculate"),
+            {"left": 12, "right": 2, "operation": "divide"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"result": 6})
+
+    def test_division_api_preserves_zero_division_error(self):
+        response = self.client.post(
+            reverse("calculator-calculate"),
+            {"left": 12, "right": 0, "operation": "divide"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"error": "ZeroDivisionError: float division by zero"})
+
     def test_page_loads_with_clean_calculator_data(self):
         response = self.client.get(reverse("calculator"))
 
