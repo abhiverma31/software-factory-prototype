@@ -1,0 +1,74 @@
+name: Factory Issue
+
+on:
+  issues:
+    types:
+      - labeled
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Factory task text
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  start-factory:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'factory'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Build factory request
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_TASK: ${{ inputs.task }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          if os.environ["EVENT_NAME"] == "workflow_dispatch":
+              task = os.environ["MANUAL_TASK"].strip()
+              context = {"source": "github_workflow_dispatch"}
+          else:
+              issue_title = os.environ["ISSUE_TITLE"].strip()
+              issue_body = os.environ["ISSUE_BODY"].strip()
+              task = f"{issue_title}\n\n{issue_body}".strip()
+              context = {
+                  "source": "github_issue",
+                  "issue_number": os.environ["ISSUE_NUMBER"],
+                  "issue_title": issue_title,
+                  "issue_body": issue_body,
+                  "issue_url": os.environ["ISSUE_URL"],
+                  "issue_author": os.environ["ISSUE_AUTHOR"],
+              }
+
+          Path("factory-request.json").write_text(
+              json.dumps({"task": task, "context": context}, indent=2),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Start software factory
+        env:
+          FACTORY_LAMBDA_URL: ${{ secrets.FACTORY_LAMBDA_URL }}
+        run: |
+          if [ -z "$FACTORY_LAMBDA_URL" ]; then
+            echo "FACTORY_LAMBDA_URL repository secret is required."
+            exit 1
+          fi
+
+          curl --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data @factory-request.json \
+            "${FACTORY_LAMBDA_URL%/}/factory/fix/"
