@@ -6,6 +6,7 @@ on:
       - main
     paths-ignore:
       - "**/README.md"
+      - "AGENTS.md"
       - ".github/workflows/*.yml"
       - ".github/workflows/*.yaml"
   workflow_dispatch:
