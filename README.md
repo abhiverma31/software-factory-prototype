@@ -164,11 +164,3 @@ Destroy AWS resources when the prototype is not needed:
 ```bash
 terraform -chdir=infra destroy
 ```
-
-## Current Limitations
-
-- The prototype is designed for one factory job at a time.
-- Status is stored as a single latest JSON file in S3.
-- The worker creates PRs but does not yet comment back on the original issue.
-- The public Lambda Function URL is unauthenticated for simplicity.
-- The reset demo path is for demos only, not production rollback.
