@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib import request
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlunparse
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "software_factory.settings")
@@ -139,14 +141,55 @@ def create_factory_commit(workspace, branch_name, marker):
     return result.stdout.strip()
 
 
-def push_factory_branch(workspace, repo_url, branch_name):
-    token = load_github_token()
+def push_factory_branch(workspace, repo_url, branch_name, token):
     push_url = authenticated_repo_url(repo_url, token)
     subprocess.run(["git", "remote", "set-url", "origin", push_url], cwd=workspace, check=True)
     try:
         subprocess.run(["git", "push", "origin", branch_name], cwd=workspace, check=True)
     finally:
         subprocess.run(["git", "remote", "set-url", "origin", repo_url], cwd=workspace, check=True)
+
+
+def parse_github_repo(repo_url):
+    parsed = urlparse(repo_url)
+    repo_path = parsed.path.strip("/")
+    if repo_path.endswith(".git"):
+        repo_path = repo_path[:-4]
+
+    parts = repo_path.split("/")
+    if len(parts) != 2 or parsed.netloc != "github.com":
+        raise ValueError("FACTORY_REPO_URL must be a GitHub HTTPS repo URL.")
+    return parts[0], parts[1]
+
+
+def create_pull_request(repo_url, branch_name, task, token):
+    owner, repo = parse_github_repo(repo_url)
+    body = json.dumps(
+        {
+            "title": f"Factory fix: {task[:80]}",
+            "head": branch_name,
+            "base": "main",
+            "body": (
+                "Created by the software factory prototype.\n\n"
+                f"User request:\n{task}\n"
+            ),
+        }
+    ).encode("utf-8")
+    pr_request = request.Request(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls",
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "software-factory-prototype",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with request.urlopen(pr_request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return payload["html_url"]
 
 
 def main():
@@ -208,7 +251,8 @@ def main():
         return 1
 
     try:
-        push_factory_branch(workspace, repo_url, branch_name)
+        github_token = load_github_token()
+        push_factory_branch(workspace, repo_url, branch_name, github_token)
     except (ValueError, KeyError, subprocess.CalledProcessError) as exc:
         complete_status(
             job_id,
@@ -224,6 +268,24 @@ def main():
         print(f"[worker] push failed job_id={job_id}: {exc.__class__.__name__}", flush=True)
         return 1
 
+    try:
+        pull_request_url = create_pull_request(repo_url, branch_name, task, github_token)
+    except (ValueError, KeyError, HTTPError, URLError) as exc:
+        complete_status(
+            job_id,
+            {
+                "state": "failed",
+                "task": task,
+                "detail": "Factory branch was pushed to GitHub, but creating the pull request failed.",
+                "branch_name": branch_name,
+                "commit_sha": commit_sha,
+                "pushed_branch": True,
+                "prompt_preview": prompt_preview(codex_prompt),
+            },
+        )
+        print(f"[worker] PR creation failed job_id={job_id}: {exc.__class__.__name__}", flush=True)
+        return 1
+
     complete_status(
         job_id,
         {
@@ -232,11 +294,12 @@ def main():
             "detail": (
                 "Repository cloned successfully. "
                 f"File count changed from {before_count} to {after_count} after writing {marker.name}. "
-                "Created and pushed a factory branch."
+                "Created a factory pull request."
             ),
             "branch_name": branch_name,
             "commit_sha": commit_sha,
             "pushed_branch": True,
+            "pull_request_url": pull_request_url,
             "prompt_preview": prompt_preview(codex_prompt),
         },
     )

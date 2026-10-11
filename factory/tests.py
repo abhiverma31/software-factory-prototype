@@ -317,6 +317,12 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             "https://x-access-token:token%2Fwith%20space@github.com/example/repo.git",
         )
 
+    def test_parse_github_repo_extracts_owner_and_repo(self):
+        self.assertEqual(
+            worker.parse_github_repo("https://github.com/example/repo.git"),
+            ("example", "repo"),
+        )
+
     @patch("factory.worker.ssm_client")
     def test_load_github_token_reads_secure_parameter(self, ssm_client):
         client = Mock()
@@ -364,13 +370,13 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             text=True,
         )
 
-    @patch("factory.worker.load_github_token", return_value="ghp_test")
     @patch("factory.worker.subprocess.run")
-    def test_push_factory_branch_sets_authenticated_remote_pushes_and_restores_remote(self, run, load_github_token):
+    def test_push_factory_branch_sets_authenticated_remote_pushes_and_restores_remote(self, run):
         worker.push_factory_branch(
             Path("/tmp/workspace"),
             "https://github.com/example/repo.git",
             "factory/test-job-1",
+            "ghp_test",
         )
 
         run.assert_any_call(
@@ -395,6 +401,29 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             check=True,
         )
 
+    @patch("factory.worker.request.urlopen")
+    def test_create_pull_request_posts_to_github_api(self, urlopen):
+        response = Mock()
+        response.read.return_value = json.dumps({"html_url": "https://github.com/example/repo/pull/1"}).encode("utf-8")
+        urlopen.return_value.__enter__.return_value = response
+
+        pull_request_url = worker.create_pull_request(
+            "https://github.com/example/repo.git",
+            "factory/test-job-1",
+            "fix the division bug",
+            "ghp_test",
+        )
+
+        self.assertEqual(pull_request_url, "https://github.com/example/repo/pull/1")
+        pr_request = urlopen.call_args.args[0]
+        self.assertEqual(pr_request.full_url, "https://api.github.com/repos/example/repo/pulls")
+        self.assertEqual(pr_request.get_method(), "POST")
+        self.assertEqual(pr_request.headers["Authorization"], "Bearer ghp_test")
+        self.assertEqual(json.loads(pr_request.data.decode("utf-8"))["head"], "factory/test-job-1")
+        self.assertEqual(json.loads(pr_request.data.decode("utf-8"))["base"], "main")
+
+    @patch("factory.worker.create_pull_request", return_value="https://github.com/example/repo/pull/1")
+    @patch("factory.worker.load_github_token", return_value="ghp_test")
     @patch("factory.worker.push_factory_branch")
     @patch("factory.worker.create_factory_commit", return_value="abc123")
     @patch("factory.worker.write_factory_marker")
@@ -407,6 +436,8 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         write_factory_marker,
         create_factory_commit,
         push_factory_branch,
+        load_github_token,
+        create_pull_request,
     ):
         write_factory_marker.return_value = Path("/tmp/test-workspace/factory_run.txt")
         start_status("clone repo test", job_id="test-job-1")
@@ -443,17 +474,25 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
             Path("/tmp/test-workspace"),
             "https://github.com/abhiverma31/software-factory-prototype.git",
             "factory/test-job-1",
+            "ghp_test",
+        )
+        create_pull_request.assert_called_once_with(
+            "https://github.com/abhiverma31/software-factory-prototype.git",
+            "factory/test-job-1",
+            "clone repo test",
+            "ghp_test",
         )
         self.assertEqual(status["state"], "completed")
         self.assertEqual(status["task"], "clone repo test")
         self.assertEqual(
             status["detail"],
             "Repository cloned successfully. File count changed from 44 to 45 after writing factory_run.txt. "
-            "Created and pushed a factory branch.",
+            "Created a factory pull request.",
         )
         self.assertEqual(status["branch_name"], "factory/test-job-1")
         self.assertEqual(status["commit_sha"], "abc123")
         self.assertIs(status["pushed_branch"], True)
+        self.assertEqual(status["pull_request_url"], "https://github.com/example/repo/pull/1")
         self.assertIn("boom", status["prompt_preview"])
 
     def test_worker_requires_job_id_task_text_and_repo_url(self):
