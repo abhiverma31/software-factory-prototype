@@ -6,6 +6,33 @@ The idea is simple: a user describes a problem or change in plain English, and t
 
 The demo app is a basic calculator. It can be deliberately broken, then repaired by the factory flow.
 
+## Overall Flow
+
+```text
+Web UI or GitHub Issue
+        |
+        v
+Django app on AWS Lambda
+        |
+        v
+ECS RunTask starts a Fargate worker
+        |
+        v
+Worker clones the GitHub repo
+        |
+        v
+Codex fixes the code
+        |
+        v
+Worker runs checks and tests
+        |
+        v
+Worker commits and pushes a branch
+        |
+        v
+GitHub pull request is created
+```
+
 ## What The Demo Shows
 
 The prototype supports two ways to start factory work:
