@@ -1,0 +1,13 @@
+Job ID: 64d21072-7cbf-4630-8e9e-9cf11dccb5c7
+Task: test
+
+Prepared Codex prompt:
+User request:
+test
+
+Observed application context:
+No calculator context was provided.
+
+Repository task:
+Inspect the Django calculator code, fix the issue minimally, and preserve existing behavior.
+After editing, run the relevant checks or tests.
