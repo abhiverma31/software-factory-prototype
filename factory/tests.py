@@ -621,7 +621,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertEqual(status["task"], "clone repo test")
         self.assertEqual(
             status["detail"],
-            "Repository cloned successfully. Codex changed 1 file(s), validation passed, and a factory pull request was created.",
+            "Factory completed the change, validation passed, and a pull request was created.",
         )
         self.assertEqual(status["branch_name"], "factory/test-job-1")
         self.assertEqual(status["commit_sha"], "abc123")

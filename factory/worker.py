@@ -572,8 +572,7 @@ def main():
             "state": "completed",
             "task": task,
             "detail": (
-                "Repository cloned successfully. "
-                f"Codex changed {len(files_changed)} file(s), validation passed, and a factory pull request was created."
+                "Factory completed the change, validation passed, and a pull request was created."
             ),
             "branch_name": branch_name,
             "commit_sha": commit_sha,
