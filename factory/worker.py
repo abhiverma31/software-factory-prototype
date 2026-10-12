@@ -103,6 +103,7 @@ def build_codex_prompt(task, context):
             "",
             "Repository task:",
             "Inspect the Django calculator code, fix the issue minimally, and preserve existing behavior.",
+            "If the change affects behavior, add or update a focused test that proves the fix.",
             "After editing, run the relevant checks or tests.",
         ]
     )

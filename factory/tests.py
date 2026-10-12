@@ -289,6 +289,7 @@ class FactoryWorkerTests(IsolatedStatusFileMixin, TestCase):
         self.assertIn("User request:\nfix this", prompt)
         self.assertIn('Calculator operation "divide" failed for left=84, right=2.', prompt)
         self.assertIn("ZeroDivisionError: division by zero", prompt)
+        self.assertIn("add or update a focused test", prompt)
 
     def test_prompt_preview_truncates_long_prompt(self):
         self.assertEqual(worker.prompt_preview("short", limit=10), "short")
