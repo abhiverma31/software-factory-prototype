@@ -11,4 +11,4 @@ def multiply(left, right):
 
 
 def divide(left, right):
-    return left / 0
+    return left / right
