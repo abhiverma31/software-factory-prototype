@@ -11,6 +11,13 @@ class CalculatorServiceTests(TestCase):
         self.assertEqual(services.multiply(4, 3), 12)
         self.assertEqual(services.divide(8, 2), 4)
 
+    def test_divide_uses_right_operand_and_preserves_fraction(self):
+        self.assertEqual(services.divide(12, 5), 2.4)
+
+    def test_divide_by_zero_raises(self):
+        with self.assertRaises(ZeroDivisionError):
+            services.divide(12, 0)
+
 
 class CalculatorViewTests(TestCase):
     def test_page_loads_with_clean_calculator_data(self):
