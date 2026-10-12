@@ -10,11 +10,11 @@ flowchart TD
     B --> D[GitHub Issue<br/>factory label]
 
     D --> E[GitHub Actions]
-    E --> F[AWS Lambda<br/>Django Factory API]
-    C --> F
+    E -->|start job and poll status| F[AWS Lambda<br/>Django Factory API]
+    C -->|start job and poll status| F
 
-    F --> G[(S3<br/>Factory Status)]
-    F --> H[ECS RunTask]
+    F -->|write/read status| G[(S3<br/>Factory Status)]
+    F -->|start worker| H[ECS RunTask]
     H --> I[Fargate Worker]
 
     I --> J[SSM Parameter Store<br/>Secrets]
@@ -26,9 +26,7 @@ flowchart TD
     M --> N[Commit and Push Branch]
     N --> O[Create Pull Request]
 
-    I --> G
-    E --> F
-    F --> G
+    I -->|update status| G
 ```
 
 ## Flow Summary
