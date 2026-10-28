@@ -5,6 +5,13 @@ from . import services
 
 
 class CalculatorServiceTests(TestCase):
+    def test_divide_uses_right_operand(self):
+        self.assertEqual(services.divide(12.0, 4.0), 3.0)
+
+    def test_divide_by_zero_raises(self):
+        with self.assertRaises(ZeroDivisionError):
+            services.divide(12.0, 0.0)
+
     def test_basic_operations(self):
         self.assertEqual(services.add(2, 3), 5)
         self.assertEqual(services.subtract(7, 2), 5)
